@@ -24,7 +24,6 @@ import scala.util.control.NonFatal
 import ai.rapids.cudf._
 
 import org.apache.spark.{SparkEnv, TaskContext}
-
 import org.apache.spark.internal.Logging
 import org.apache.spark.resource.ResourceInformation
 import org.apache.spark.sql.SparkSession
@@ -346,6 +345,8 @@ object GpuDeviceManager extends Logging {
     }
   }
 
+  // Short-term solution for ETL+DL mixed use case.
+  // This method will be called in a pyspark environment via sc._jvm after ETL but before DL.
   def externalRmmShutdown(ss: SparkSession): Unit = {
     // still work for dynamic allocation?
     val numExecutors = ss.sparkContext.getExecutorMemoryStatus.keys.size - 1
@@ -360,6 +361,7 @@ object GpuDeviceManager extends Logging {
     }).collect()
   }
 
+  // The opposite of externalRmmShutdown, restart the RMM in each executor process.
   def externalRmmReinitialize(ss: SparkSession): Unit = {
     val numExecutors = ss.sparkContext.getExecutorMemoryStatus.keys.size - 1
     // make sure every executor reinitialized RMM.
