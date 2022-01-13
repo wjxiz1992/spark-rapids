@@ -24,8 +24,10 @@ import scala.util.control.NonFatal
 import ai.rapids.cudf._
 
 import org.apache.spark.{SparkEnv, TaskContext}
+
 import org.apache.spark.internal.Logging
 import org.apache.spark.resource.ResourceInformation
+import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.rapids.GpuShuffleEnv
 
 sealed trait MemoryState
@@ -343,4 +345,33 @@ object GpuDeviceManager extends Logging {
       })
     }
   }
+
+  def externalRmmShutdown(ss: SparkSession): Unit = {
+    // still work for dynamic allocation?
+    val numExecutors = ss.sparkContext.getExecutorMemoryStatus.keys.size - 1
+    // make sure every executor shuts down RMM.
+    val rdd = ss.sparkContext.parallelize(Seq.range(0, numExecutors), numExecutors)
+    rdd.mapPartitions(it => {
+      Rmm.shutdown()
+      // reset this variable in case RMM need to be reinitialized again in a same SparkContext.
+      singletonMemoryInitialized = Uninitialized
+      logInfo("Rmm shutdown.")
+      it
+    }).collect()
+  }
+
+  def externalRmmReinitialize(ss: SparkSession): Unit = {
+    val numExecutors = ss.sparkContext.getExecutorMemoryStatus.keys.size - 1
+    // make sure every executor reinitialized RMM.
+    val rdd = ss.sparkContext.parallelize(Seq.range(0, numExecutors), numExecutors)
+    rdd.mapPartitions(it =>{
+      GpuDeviceManager.setRmmTaskInitEnabled(true)
+      // Initialize from the beginning to use the same Spark configuration.
+      GpuDeviceManager.initializeFromTask()
+      logInfo("Rmm reinitialized.")
+      it
+    }).collect()
+  }
+
+
 }
