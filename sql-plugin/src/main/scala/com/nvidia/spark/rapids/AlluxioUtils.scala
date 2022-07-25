@@ -18,16 +18,15 @@ package com.nvidia.spark.rapids
 
 import org.apache.hadoop.fs.Path
 
-import org.apache.spark.sql.catalyst.expressions.{Expression, PlanExpression}
-import org.apache.spark.sql.execution.datasources.{FileIndex, HadoopFsRelation, InMemoryFileIndex}
-import org.apache.spark.sql.execution.datasources.rapids.GpuPartitioningUtils
+import org.apache.spark.sql.catalyst.expressions.Expression
+import org.apache.spark.sql.execution.datasources.{CatalogFileIndex, FileIndex, HadoopFsRelation, InMemoryFileIndex, PartitioningAwareFileIndex, PartitionSpec}
 
 object AlluxioUtils {
   def replacePathIfNeeded(
-      conf: RapidsConf,
-      relation: HadoopFsRelation,
-      partitionFilters: Seq[Expression],
-      dataFilters: Seq[Expression]): FileIndex = {
+                           conf: RapidsConf,
+                           relation: HadoopFsRelation,
+                           partitionFilters: Seq[Expression],
+                           dataFilters: Seq[Expression]): FileIndex = {
 
     val alluxioPathsReplace: Option[Seq[String]] = conf.getAlluxioPathsToReplace
 
@@ -44,19 +43,12 @@ object AlluxioUtils {
             split(0).trim -> split(1).trim
           } else {
             throw new IllegalArgumentException(s"Invalid setting for " +
-                s"${RapidsConf.ALLUXIO_PATHS_REPLACE.key}")
+              s"${RapidsConf.ALLUXIO_PATHS_REPLACE.key}")
           }
         }).toMap
       })
 
       replaceMapOption.map(replaceMap => {
-
-        def isDynamicPruningFilter(e: Expression): Boolean =
-          e.find(_.isInstanceOf[PlanExpression[_]]).isDefined
-
-        val partitionDirs = relation.location.listFiles(
-          partitionFilters.filterNot(isDynamicPruningFilter), dataFilters)
-
         // replacement func to check if the file path is prefixed with the string user configured
         // if yes, replace it
         val replaceFunc = (f: Path) => {
@@ -65,8 +57,8 @@ object AlluxioUtils {
           if (matchedSet.size > 1) {
             // never reach here since replaceMap is a Map
             throw new IllegalArgumentException(s"Found ${matchedSet.size} same replacing rules " +
-                s"from ${RapidsConf.ALLUXIO_PATHS_REPLACE.key} which requires only 1 rule " +
-                s"for each file path")
+              s"from ${RapidsConf.ALLUXIO_PATHS_REPLACE.key} which requires only 1 rule " +
+              s"for each file path")
           } else if (matchedSet.size == 1) {
             new Path(pathStr.replaceFirst(matchedSet.head, replaceMap(matchedSet.head)))
           } else {
@@ -74,34 +66,43 @@ object AlluxioUtils {
           }
         }
 
-        // replace all of input files
-        val inputFiles: Seq[Path] = partitionDirs.flatMap(partitionDir => {
-          partitionDir.files.map(f => replaceFunc(f.getPath))
-        })
-
-        // replace all of rootPaths which are already unique
-        val rootPaths = relation.location.rootPaths.map(replaceFunc)
-
         val parameters: Map[String, String] = relation.options
 
-        // infer PartitionSpec
-        val partitionSpec = GpuPartitioningUtils.inferPartitioning(
-          relation.sparkSession,
-          rootPaths,
-          inputFiles,
-          parameters,
-          Option(relation.dataSchema),
-          replaceFunc)
-
-        // generate a new InMemoryFileIndex holding paths with alluxio schema
-        new InMemoryFileIndex(
-          relation.sparkSession,
-          inputFiles,
-          parameters,
-          Option(relation.dataSchema),
-          userSpecifiedPartitionSpec = Some(partitionSpec))
+        if (relation.location.isInstanceOf[PartitioningAwareFileIndex]) {
+          val fi = relation.location.asInstanceOf[PartitioningAwareFileIndex]
+          val spec = fi.partitionSpec()
+          val partitionsReplaced = spec.partitions.map { p =>
+            val replacedPath = replaceFunc(p.path)
+            org.apache.spark.sql.execution.datasources.PartitionPath(p.values, replacedPath)
+          }
+          val specAdjusted = PartitionSpec(spec.partitionColumns, partitionsReplaced)
+          val replacedPaths = fi.rootPaths.map { p => replaceFunc(p) }
+          new InMemoryFileIndex(
+            relation.sparkSession,
+            replacedPaths,
+            parameters,
+            Option(relation.dataSchema),
+            userSpecifiedPartitionSpec = Some(specAdjusted))
+        } else if (relation.location.isInstanceOf[CatalogFileIndex]) {
+          val fi = relation.location.asInstanceOf[CatalogFileIndex]
+          val memFI = fi.filterPartitions(Nil)
+          val spec = memFI.partitionSpec()
+          val partitionsReplaced = spec.partitions.map { p =>
+            val replacedPath = replaceFunc(p.path)
+            org.apache.spark.sql.execution.datasources.PartitionPath(p.values, replacedPath)
+          }
+          val replacedPaths = memFI.rootPaths.map { p => replaceFunc(p) }
+          val specAdjusted = PartitionSpec(spec.partitionColumns, partitionsReplaced)
+          new InMemoryFileIndex(
+            relation.sparkSession,
+            replacedPaths,
+            parameters,
+            Option(relation.dataSchema),
+            userSpecifiedPartitionSpec = Some(specAdjusted))
+        } else {
+          relation.location
+        }
       }).getOrElse(relation.location)
-
     } else {
       relation.location
     }
