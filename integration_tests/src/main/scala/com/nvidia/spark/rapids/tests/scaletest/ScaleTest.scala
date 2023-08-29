@@ -19,9 +19,12 @@ package com.nvidia.spark.rapids.tests.scaletest
 import java.util.concurrent._
 
 import scala.collection.mutable.ListBuffer
-import scala.concurrent.ExecutionContext.Implicits.global
-import scala.concurrent.duration.NANOSECONDS
 
+import scala.collection.JavaConverters.collectionAsScalaIterableConverter
+import scala.concurrent.duration.NANOSECONDS
+import scala.concurrent.ExecutionContext.Implicits.global
+
+import com.nvidia.spark.rapids.tests.scaletest.Utils.stackTraceAsString
 import scopt.OptionParser
 
 import org.apache.spark.sql.SparkSession
@@ -30,6 +33,11 @@ import org.apache.spark.sql.SparkSession
  * Entry point for Scale Test
  */
 object ScaleTest {
+
+  val STATUS_COMPLETED = "Completed"
+  val STATUS_COMPLETED_WITH_TASK_FAILURES = "CompletedWithTaskFailures"
+  val STATUS_TIMEOUT = "Timeout"
+  val STATUS_FAILED = "Failed"
 
   // case class represents all input commandline arguments
   case class Config(scaleFactor: Int = 1,
@@ -68,8 +76,11 @@ object ScaleTest {
   = {
     val mode = if (overwrite == true) "overwrite" else "error"
     val executionTimes = ListBuffer[Long]()
+    val exceptions = new ConcurrentLinkedQueue[String]()
+    val status = ListBuffer[String]()
 
     (1 to iterations).foreach(i => {
+      spark.sparkContext.setJobDescription(s"query=$name; iteration=$i")
       println(s"Iteration: $i")
       while (idleSessionListener.isBusy()){
         // Scala Test aims for stability not performance. And the sleep time will not be calculated
@@ -78,28 +89,41 @@ object ScaleTest {
         println(s"There are still jobs running, waiting for $sleepTime seconds.")
         Thread.sleep(sleepTime * 1000)
       }
+      val taskFailureListener = new TaskFailureListener
       try {
+        spark.sparkContext.addSparkListener(taskFailureListener)
         val future = scala.concurrent.Future {
           val start = System.nanoTime()
           spark.sql(query).write.mode(mode).format(format).save(s"${baseOutputPath}_$i")
           val end = System.nanoTime()
           val elapsed = NANOSECONDS.toMillis(end - start)
           executionTimes += elapsed
+
+          val failureOpt = taskFailureListener.taskFailures.headOption
+          val statusForIter = failureOpt.map(_ => STATUS_COMPLETED_WITH_TASK_FAILURES)
+            .getOrElse(STATUS_COMPLETED)
+          failureOpt.foreach(failure => exceptions.add(failure.toString))
+          status.append(statusForIter)
         }
         scala.concurrent.Await.result(future,
           scala.concurrent.duration.Duration(timeout, TimeUnit.MILLISECONDS))
       } catch {
-        case _: java.util.concurrent.TimeoutException =>
+        case e: java.util.concurrent.TimeoutException =>
           println(s"Timeout at iteration $i")
           // use "-1" to mark timeout execution
           executionTimes += -1
           spark.sparkContext.cancelAllJobs()
+          status.append(STATUS_TIMEOUT)
+          exceptions.add(e.getMessage)
         case e: Exception =>
           // We don't want a query failure to fail over the whole test.
           println(s"Query failed: $query - ${e.getMessage}")
+          executionTimes += -1
+          status.append(STATUS_FAILED)
+          exceptions.add(stackTraceAsString(e))
       }
     })
-    QueryMeta(name, executionTimes)
+    QueryMeta(name, status, exceptions.asScala.toSeq, executionTimes)
   }
 
 

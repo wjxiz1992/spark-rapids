@@ -51,6 +51,44 @@ class QuerySpecs(config: Config, spark: SparkSession) {
   }
 
   /**
+   * expand the key column names by complexity. e.g. c_key2_* when complexity is 5:
+   * "c_key2_1, c_key2_2, c_key2_3, c_key2_4, c_key2_5"
+   * @param prefix column name prefix
+   * @param complexity indicates the number of columns
+   * @return
+   */
+  private def expandKeyColumnByComplexity(prefix: String, complexity: Int): String = {
+    (1 to complexity).map(i => s"${prefix}_$i").mkString(",")
+  }
+
+  /**
+   * expand the columns for aggregations functions by complexity. e.g. MIN(b_data_*) when
+   * complexity is 3:
+   * "MIN(b_data_1), MIN(b_data_2), MIN(b_data_3), MIN(b_data_4), MIN(b_data_5)"
+   * @param prefix column name prefix
+   * @param aggFunc aggregate function name
+   * @param complexity indicates the number of columns
+   * @return
+   */
+  private def expandAggColumnByComplexity(prefix: String, aggFunc: String, complexity: Int): String
+  = {
+    (1 to complexity).map(i => s"${aggFunc}(${prefix}_$i)").mkString(",")
+  }
+
+  /**
+   * expand the where clause with AND condition after join by complexity. e.g. c_key2_* = d_key2_*
+   * with complexity 3:
+   * "c_key2_1 = d_key2_1 AND c_key2_2 = d_key2_2 AND c_key2_3 = d_key2_3"
+   * @param prefix
+   * @param complexity
+   * @return
+   */
+  private def expandWhereClauseWithAndByComplexity(lhsPrefix: String, rhsPrefix: String,
+    complexity: Int): String = {
+    (1 to complexity).map(i => s"${lhsPrefix}_$i = ${rhsPrefix}_i").mkString(" AND ")
+  }
+
+  /**
    * Read data and initialize temp views in Spark
    */
   def initViews(): Unit = {
@@ -89,7 +127,82 @@ class QuerySpecs(config: Config, spark: SparkSession) {
           " FROM b_data LEFT OUTER JOIN a_facts WHERE primary_a = b_foreign_a",
         config.iterations,
         config.timeout,
-        "Left outer join with lots of ride along columns")
+        "Left outer join with lots of ride along columns"),
+
+      "q4" -> TestQuery("q4",
+        "SELECT c_data.* FROM c_data LEFT ANTI JOIN a_facts WHERE primary_a = c_foreign_a",
+        config.iterations,
+        config.timeout,
+        "Left anti-join lots of ride along columns."),
+      "q5" -> TestQuery("q5",
+        "SELECT c_data.* FROM c_data LEFT SEMI JOIN a_facts WHERE primary_a = c_foreign_a",
+        config.iterations,
+        config.timeout,
+        "Left semi-join lots of ride along columns."),
+      "q6" -> TestQuery("q6",
+        s"SELECT " +
+          s"${expandKeyColumnByComplexity("c_key2", config.complexity)}, COUNT(1), " +
+          s"${expandAggColumnByComplexity("c_data", "MIN", config.complexity)}," +
+          s"${expandAggColumnByComplexity("d_data", "MAX", config.complexity)} " +
+          s"FROM c_data JOIN d_data WHERE " +
+          s"${expandWhereClauseWithAndByComplexity(
+            "c_key2", "d_key2", config.complexity)} GROUP BY " +
+          s"${expandKeyColumnByComplexity("c_key2", config.complexity)}",
+        config.iterations,
+        config.timeout,
+        "Exploding inner large key count equi-join followed by min/max agg."),
+      "q7" -> TestQuery("q7",
+        s"SELECT " +
+          s"${expandKeyColumnByComplexity("c_key2", config.complexity)}, COUNT(1), " +
+          s"${expandAggColumnByComplexity("c_data", "MIN", config.complexity)}," +
+          s"${expandAggColumnByComplexity("d_data", "MAX", config.complexity)} " +
+          s"FROM c_data FULL OUTER JOIN d_data WHERE " +
+          s"${expandWhereClauseWithAndByComplexity(
+              "c_key2", "d_key2", config.complexity)} GROUP BY " +
+          s"${expandKeyColumnByComplexity("c_key2", config.complexity)}",
+        config.iterations,
+        config.timeout,
+        "Exploding full outer large key count equi-join followed by min/max agg."),
+      "q8" -> TestQuery("q8",
+        s"SELECT " +
+          s"${expandKeyColumnByComplexity("c_key2", config.complexity)}, COUNT(1), " +
+          s"${expandAggColumnByComplexity("c_data", "MIN", config.complexity)}," +
+          s"${expandAggColumnByComplexity("d_data", "MAX", config.complexity)} " +
+          s"FROM c_data LEFT OUTER JOIN d_data WHERE " +
+          s"${expandWhereClauseWithAndByComplexity(
+              "c_key2", "d_key2", config.complexity)} " +
+          s"GROUP BY " +
+          s"${expandKeyColumnByComplexity("c_key2", config.complexity)}",
+        config.iterations,
+        config.timeout,
+        "Exploding left outer large key count equi-join followed by min/max agg."),
+      "q9" -> TestQuery("q9",
+        s"SELECT " +
+          s"${expandKeyColumnByComplexity("c_key2", config.complexity)}, " +
+          s"COUNT(1), " +
+          s"${expandAggColumnByComplexity("MIN", "c_data", config.complexity)} " +
+          s"FROM c_data LEFT SEMI JOIN d_data WHERE " +
+          s"${expandWhereClauseWithAndByComplexity(
+              "c_key2", "d_key2", config.complexity)}" +
+          s" GROUP BY " +
+          s"${expandKeyColumnByComplexity("c_key2", config.complexity)}",
+        config.iterations,
+        config.timeout,
+      "Left semi large key count equi-join followed by min/max agg."),
+      "q10" -> TestQuery("q10",
+        s"SELECT " +
+          s"${expandKeyColumnByComplexity("c_key2", config.complexity)}," +
+          s" COUNT(1)," +
+          s" ${expandAggColumnByComplexity("c_data", "MIN", config.complexity)}" +
+          s" FROM c_data LEFT ANTI JOIN d_data WHERE " +
+          s"${expandWhereClauseWithAndByComplexity(
+              "c_key2", "d_key2", config.complexity)} " +
+          s"GROUP BY " +
+          s"${expandKeyColumnByComplexity("c_key2", config.complexity)}",
+        config.iterations,
+        config.timeout,
+      "Left anti large key count equi-join followed by min/max agg."),
+
     )
     if (config.queries.isEmpty) {
       allQueries
