@@ -19,8 +19,8 @@ package com.nvidia.spark.rapids.tests.scaletest
 import java.util.concurrent._
 
 import scala.collection.mutable.ListBuffer
-
 import scala.collection.JavaConverters.collectionAsScalaIterableConverter
+import scala.collection.mutable
 import scala.concurrent.duration.NANOSECONDS
 import scala.concurrent.ExecutionContext.Implicits.global
 
@@ -51,7 +51,8 @@ object ScaleTest {
       iterations: Int = 1,
       queries: Seq[String] = Seq(),
       overwrite: Boolean = false,
-      timeout: Long = 600000L)
+      timeout: Long = 600000L,
+      dry: Boolean = false)
 
   /**
    *
@@ -124,6 +125,13 @@ object ScaleTest {
     QueryMeta(query.name, status, exceptions.asScala.toSeq, executionTimes)
   }
 
+  private def printQueries(queryMap: mutable.LinkedHashMap[String, TestQuery]): Unit = {
+    for ((queryName, query) <- queryMap) {
+      println("*"*20)
+      println(queryName)
+      println(query.content)
+    }
+  }
 
   private def runScaleTest(config: Config): Unit = {
     // Init SparkSession
@@ -135,6 +143,11 @@ object ScaleTest {
     val querySpecs = new QuerySpecs(config, spark)
     querySpecs.initViews()
     val queryMap = querySpecs.getCandidateQueries()
+    if (config.dry) {
+      println("=================================================================")
+      printQueries(queryMap)
+      sys.exit(1)
+    }
     var results = Seq[QueryMeta]()
     for ((queryName, query) <- queryMap) {
       val outputPath = s"${config.outputDir}/$queryName"
@@ -201,6 +214,10 @@ object ScaleTest {
         .optional()
         .action((x, c) => c.copy(timeout = x))
         .text("timeout for each query in milliseconds, default is 10 minutes(600000)")
+      opt[Unit]("dry")
+      .optional()
+        .action((_, c) => c.copy(dry = true))
+        .text("Flag argument. Only print the queries but not execute them.")
     }
   }
 

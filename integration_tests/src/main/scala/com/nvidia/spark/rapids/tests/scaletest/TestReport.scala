@@ -27,6 +27,7 @@ case class QueryMeta(name: String,
     exceptions: Seq[String],
     executionTime: Seq[Long])
 
+
 /**
  * A Class for the report of Scale Test.
  * Only execution time are included at the beginning, will add more metadata for the test.

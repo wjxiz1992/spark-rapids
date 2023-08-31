@@ -16,12 +16,16 @@
 
 package com.nvidia.spark.rapids.tests.scaletest
 
+import scala.collection.mutable
+import scala.util.Random
+
 import com.nvidia.spark.rapids.tests.scaletest.ScaleTest.Config
 
 import org.apache.spark.sql.SparkSession
 
 case class TestQuery(name: String, content: String, iterations: Int, timeout: Long,
     description: String, shufflePartitions: Int = 200)
+
 
 class QuerySpecs(config: Config, spark: SparkSession) {
   private val baseInputPath = s"${config.inputDir}/" +
@@ -38,6 +42,36 @@ class QuerySpecs(config: Config, spark: SparkSession) {
     "e_data",
     "f_facts",
     "g_data")
+
+  private val random = new Random(config.seed)
+
+
+  /**
+   * To get numeric columns in a dataframe.
+   * Now numeric columns are limited to [byte, int, long, decimal]
+   *
+   * @param table table name
+   * @return numeric type column names
+   */
+  private def getNumericColumns(table: String): Seq[String] = {
+    assert(tables.contains(table), s"Invalid table: $table, candidate tables are ${
+      tables
+        .mkString(",")
+    }")
+    val df = spark.read.format(config.format).load(s"$baseInputPath/$table")
+    // Get the data types of all columns
+    val columnDataTypes = df.dtypes
+
+    // Filter columns that are numeric
+    val numericColumns = columnDataTypes.filter {
+      case (_, dataType) =>
+        dataType == "ByteType" || dataType == "IntegerType" || dataType == "LongType" || dataType
+          .startsWith("DecimalType")
+    }.map {
+      case (columnName, _) => columnName
+    }
+    numericColumns
+  }
 
   /**
    *
@@ -69,7 +103,7 @@ class QuerySpecs(config: Config, spark: SparkSession) {
    * "b_key3_1, b_key3_2, b_key3_3"
    * This is only for Key Group 3
    *
-   * @param prefix
+   * @param prefix prefix
    * @return expanded column names
    */
   private def expandKeyGroup3(prefix: String): String = {
@@ -103,7 +137,7 @@ class QuerySpecs(config: Config, spark: SparkSession) {
    */
   private def expandWhereClauseWithAndByComplexity(lhsPrefix: String, rhsPrefix: String,
       complexity: Int): String = {
-    (1 to complexity).map(i => s"${lhsPrefix}_$i = ${rhsPrefix}_i").mkString(" AND ")
+    (1 to complexity).map(i => s"${lhsPrefix}_$i = ${rhsPrefix}_$i").mkString(" AND ")
   }
 
   /**
@@ -135,11 +169,51 @@ class QuerySpecs(config: Config, spark: SparkSession) {
       (1 to 10).map(i => s"b_data_small_value_range_$i").mkString(", ")
   }
 
-  // TODO: pending discussion
-  // https://github.com/NVIDIA/spark-rapids/issues/8816#issuecomment-1698631481
-  //  private def expandSUMMINMAXDataColumnsByComplexity(complexity: Int): String = {
-  //
-  //  }
+
+  /**
+   * generate a string that contains multiple SUM oprations for numeric data columns
+   * e.g. when table b contains numeric columns as ["b_1", "b_2", "b_3", "b_4"]
+   * it will produce "SUM(b_1 * b_2), SUM(b_1 * b3), SUM(b_1 * b_4)....." according to complexity.
+   * Note it's not only limited to 2 columns multiplied, when complexity goes large, it may contains
+   * more columns.
+   *
+   * @param table
+   * @param complexity
+   * @return
+   */
+  private def expandSumForDataColumnsByComplexity(table: String, complexity: Int)
+  : String = {
+    val numericColumns = getNumericColumns(table)
+    (2 until numericColumns.length).map(numericColumns.combinations).reduce(_ ++ _).take(
+      complexity).map(f => f.mkString("SUM(", " * ", ")")).mkString(", ")
+  }
+
+  private def randomMinMax(random: Random): String = {
+    if (random.nextBoolean()) {
+      "MAX"
+    } else {
+      "MIN"
+    }
+  }
+
+  private def expandMinMaxForDataColumnsByComplexity(table: String, complexity: Int): String = {
+    val numericColumns = getNumericColumns(table)
+    numericColumns.take(complexity).map(i => i.mkString(s"${randomMinMax(random)}(", "", ")"))
+      .mkString(",")
+  }
+
+  private def MixedSumMinMaxColumnsByComplexity(table: String, complexity: Int): String = {
+    val numSums = random.nextInt(complexity)
+    val numMinMax = complexity - numSums
+    Seq(expandSumForDataColumnsByComplexity(table, numSums),
+      expandMinMaxForDataColumnsByComplexity(table, numMinMax)).filter(_.nonEmpty).mkString(",")
+  }
+
+  private def WindowMixedSumMinMaxColumnsByComplexity(table: String, complexity: Int): String = {
+    val withoutWindow = MixedSumMinMaxColumnsByComplexity(table, complexity)
+    withoutWindow.strip().split(",").filter(_.nonEmpty)
+      .map(i => s"$i over w").mkString(", ")
+  }
 
   /**
    * Read data and initialize temp views in Spark
@@ -152,11 +226,11 @@ class QuerySpecs(config: Config, spark: SparkSession) {
     }
   }
 
-  def getCandidateQueries(): Map[String, TestQuery] = {
+  def getCandidateQueries(): mutable.LinkedHashMap[String, TestQuery] = {
     /*
     All queries are defined here
      */
-    val allQueries = Map[String, TestQuery](
+    val allQueries = mutable.LinkedHashMap[String, TestQuery](
       "q1" -> TestQuery("q1",
         "SELECT a_facts.*, " +
           expandColumnWithRange("b_data", 1, 10) +
@@ -409,25 +483,30 @@ class QuerySpecs(config: Config, spark: SparkSession) {
         config.iterations,
         config.timeout,
         "Extreme skew conditional NON-AST inner join."),
-      //      "q22" -> TestQuery("q22",
-      //        s"SELECT ${expandKeyGroup3("b_key3")}, " +
-      //          s"complexity number of aggregations that are SUMs of 2 or more numeric data columns multiplied together or MIN/MAX of any data column " +
-      //          s"FROM b_data GROUP BY " +
-      //          s"${expandKeyGroup3("b_key3")}",
-      //        config.iterations,
-      //        config.timeout,
-      //        "Group by aggregation, not a lot of combining, but lots of aggregations, " +
-      //          "and CUDF does sort agg internally."),
-      //      "q23" -> TestQuery("q23",
-      //        s"SELECT complexity number of aggregations that are SUMs of 2 or more numeric data columns multiplied together or MIN/MAX of any data column FROM b_data.",
-      //        config.iterations,
-      //        config.timeout,
-      //        "Reduction with with lots of aggregations"),
-      //      "q24" -> TestQuery("q24",
-      //        s"SELECT g_key3_*, complexity number of aggregations that are SUM/MIN/MAX/AVERAGE/COUNT of 2 or more byte columns cast to int and added, subtracted, multiplied together. FROM g_data GROUP BY g_key3_*",
-      //        config.iterations,
-      //        config.timeout,
-      //        "Group by aggregation with lots of combining, lots of aggs, and CUDF does hash agg internally"),
+      "q22" -> TestQuery("q22",
+        s"SELECT ${expandKeyGroup3("b_key3")}, " +
+          s"${MixedSumMinMaxColumnsByComplexity("b_data", config.complexity)} " +
+          s"FROM b_data GROUP BY " +
+          s"${expandKeyGroup3("b_key3")}",
+        config.iterations,
+        config.timeout,
+        "Group by aggregation, not a lot of combining, but lots of aggregations, " +
+          "and CUDF does sort agg internally."),
+      "q23" -> TestQuery("q23",
+        s"SELECT ${MixedSumMinMaxColumnsByComplexity("b_data", config.complexity)} " +
+          s"FROM b_data.",
+        config.iterations,
+        config.timeout,
+        "Reduction with with lots of aggregations"),
+      "q24" -> TestQuery("q24",
+        s"SELECT ${expandKeyGroup3("g_key3")}, " +
+          s"${MixedSumMinMaxColumnsByComplexity("b_data", config.complexity)} " +
+          s"FROM g_data " +
+          s"GROUP BY ${expandKeyGroup3("g_key3")}",
+        config.iterations,
+        config.timeout,
+        "Group by aggregation with lots of combining, lots of aggs, and CUDF does hash agg" +
+          " internally"),
       "q25" -> TestQuery("q25",
         s"select ${expandKeyGroup3("g_key3")}, " +
           s"collect_set(g_data_enum_1) FROM g_data GROUP BY " +
@@ -460,7 +539,7 @@ class QuerySpecs(config: Config, spark: SparkSession) {
           s"max(g_data_byte_1) over w, " +
           s"sum(g_data_byte_2) over w, " +
           s"count(g_data_byte_3) over w, " +
-          s"avg(g_data_byte_4) over w" +
+          s"avg(g_data_byte_4) over w " +
           "from g_data " +
           s"WINDOW w AS (PARTITION BY ${expandKeyGroup3("g_key3")} " +
           s"ORDER BY g_data_row_num_1 RANGE BETWEEN 1000 * ${config.scaleFactor}" +
@@ -535,8 +614,8 @@ class QuerySpecs(config: Config, spark: SparkSession) {
         config.timeout,
         "Lead/Lag window with skewed partition by columns and single order by column"),
       "q34" -> TestQuery("q34",
-        s"select lag(g_data_1, 10 * scale_factor) over w, " +
-          s"lead(g_data_2, 10 * scale_factor) over w " +
+        s"select lag(g_data_1, 10 * ${config.scaleFactor}) over w, " +
+          s"lead(g_data_2, 10 * ${config.scaleFactor}) over w " +
           s"from g_data " +
           s"WINDOW w as (ORDER BY g_data_row_num_1)",
         config.iterations,
@@ -558,7 +637,8 @@ class QuerySpecs(config: Config, spark: SparkSession) {
           }",
         config.iterations,
         config.timeout,
-        "Running window with complexity/2 in partition by columns and complexity/2 in order by columns."),
+        "Running window with complexity/2 in partition by columns and complexity/2 in order" +
+          " by columns."),
       "q36" -> TestQuery("q36",
         s"select min(c_data_numeric_1) over w, max(c_data_numeric_2) over w from c_data " +
           s"WINDOW w AS " +
@@ -574,26 +654,38 @@ class QuerySpecs(config: Config, spark: SparkSession) {
           s"AND UNBOUNDED FOLLOWING)",
         config.iterations,
         config.timeout,
-        "unbounded to unbounded window with complexity/2 in partition by columns and complexity/2 in order by columns."),
-      //      "q37" -> TestQuery("q37",
-      //        s"select {complexity aggregations mins/max of any column or SUM of two or more numeric " +
-      //          s"columns multiplied together} from c_data " +
-      //          s"WINDOW w AS (PARTITION BY c_foreign_a ORDER BY c_data_row_num_1 ROWS BETWEEN " +
-      //          s"UNBOUNDED PRECEDING AND CURRENT ROW",
-      //        config.iterations,
-      //        config.timeout,
-      //        "Running window with simple partition by and order by columns, but complexity window " +
-      //          "operations as combinations of a few input columns"),
-      //      "q38" -> TestQuery("q38",
-      //        s"select {complexity aggregations mins/max of any column or SUM of two or more numeric columns multiplied together} over (RANGE BETWEEN 10 PRECEDING AND 10 FOLLOWING PARTITION BY c_foreign_a ORDER BY c_data_row_num_1",
-      //        config.iterations,
-      //        config.timeout,
-      //        "Ranged window with simple partition by and order by columns, but complexity window operations as combinations of a few input columns"),
-      //      "q39" -> TestQuery("q39",
-      //        s"select {complexity aggregations mins/max of any column or SUM of two or more numeric columns multiplied together} over (ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING PARTITION BY c_foreign_a ORDER BY c_data_row_num_1",
-      //        config.iterations,
-      //        config.timeout,
-      //        "unbounded window with simple partition by and order by columns, but complexity window operations as combinations of a few input columns"),
+        "unbounded to unbounded window with complexity/2 in partition by columns and complexity/2" +
+          " in order by columns."),
+            "q37" -> TestQuery("q37",
+              s"select ${WindowMixedSumMinMaxColumnsByComplexity("c_data",
+                config.complexity)} " +
+                s" from c_data " +
+                s"WINDOW w AS (PARTITION BY c_foreign_a ORDER BY c_data_row_num_1 ROWS BETWEEN " +
+                s"UNBOUNDED PRECEDING AND CURRENT ROW",
+              config.iterations,
+              config.timeout,
+              "Running window with simple partition by and order by columns, but complexity " +
+                "window operations as combinations of a few input columns"),
+            "q38" -> TestQuery("q38",
+              s"select ${
+                WindowMixedSumMinMaxColumnsByComplexity("c_data", config.complexity)} " +
+                s"from c_data " +
+                s"WINDOW w AS (PARTITION BY c_foreign_a ORDER BY c_data_row_num_1 RANGE BETWEEN " +
+                s"10 PRECEDING AND 10 FOLLOWING",
+              config.iterations,
+              config.timeout,
+              "Ranged window with simple partition by and order by columns, but complexity " +
+                "window operations as combinations of a few input columns"),
+            "q39" -> TestQuery("q39",
+              s"select ${
+                WindowMixedSumMinMaxColumnsByComplexity("c_data", config.complexity)} " +
+                s"from c_data " +
+                s"WINDOW w AS (PARTITION BY c_foreign_a ORDER BY c_data_row_num_1 ROWS BETWEEN " +
+                s"UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING )",
+              config.iterations,
+              config.timeout,
+              "unbounded window with simple partition by and order by columns, but complexity " +
+                "window operations as combinations of a few input columns"),
       "q40" -> TestQuery("q40",
         s"select " +
           s"array_sort(collect_set(f_data_low_unique_1)) " +
@@ -605,8 +697,8 @@ class QuerySpecs(config: Config, spark: SparkSession) {
       "q41" -> TestQuery("q41",
         s"select " +
           s"collect_list(f_data_low_unique_1) " +
-          s"OVER (PARTITION BY f_key4_1 order by f_data_row_num_1 ROWS BETWEEN complexity " +
-          s"PRECEDING and CURRENT ROW )",
+          s"OVER (PARTITION BY f_key4_1 order by f_data_row_num_1 " +
+          s"ROWS BETWEEN ${config.complexity} PRECEDING and CURRENT ROW )",
         config.iterations,
         config.timeout,
         "COLLECT LIST WINDOW (We may never really be able to do this well)")
@@ -614,9 +706,11 @@ class QuerySpecs(config: Config, spark: SparkSession) {
     if (config.queries.isEmpty) {
       allQueries
     } else {
-      config.queries.map(q => {
-        (q, allQueries(q))
-      }).toMap
+      val selected = allQueries.filter {
+        case (k, _) =>
+          config.queries.contains(k)
+      }
+      selected
     }
   }
 }
