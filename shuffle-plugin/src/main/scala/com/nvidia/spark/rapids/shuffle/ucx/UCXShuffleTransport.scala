@@ -521,7 +521,7 @@ class UCXShuffleTransport(shuffleServerId: BlockManagerId, rapidsConf: RapidsCon
 
   override def queuePending(reqs: Seq[PendingTransferRequest]): Unit =
     altList.synchronized {
-      import scala.collection.JavaConverters._
+      import collection.JavaConverters._
       validHandlers.add(reqs.head.handler)
       altList.addAll(reqs.asJava)
       logDebug(s"THROTTLING ${altList.size} queued requests")

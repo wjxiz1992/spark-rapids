@@ -31,7 +31,6 @@ import org.apache.spark.sql.execution.SparkPlan
 import org.apache.spark.sql.execution.aggregate.BaseAggregateExec
 import org.apache.spark.sql.execution.command.{DataWritingCommand, RunnableCommand}
 import org.apache.spark.sql.execution.exchange.ShuffleExchangeExec
-import org.apache.spark.sql.execution.python.AggregateInPandasExec
 import org.apache.spark.sql.rapids.{CpuToGpuAggregateBufferConverter, GpuToCpuAggregateBufferConverter}
 import org.apache.spark.sql.types.DataType
 
@@ -936,15 +935,7 @@ object ExpressionContext {
     parent.get.wrapped match {
       case agg: SparkPlan if SparkShimImpl.isWindowFunctionExec(agg) =>
         WindowAggExprContext
-      case agg: AggregateInPandasExec =>
-        if (agg.groupingExpressions.isEmpty) {
-          ReductionAggExprContext
-        } else {
-          GroupByAggExprContext
-        }
       case agg: BaseAggregateExec =>
-        // Since Spark 3.5, Python udfs are wrapped in AggregateInPandasExec. UDFs for earlier
-        // versions of Spark should be handled by the BaseAggregateExec
         if (agg.groupingExpressions.isEmpty) {
           ReductionAggExprContext
         } else {

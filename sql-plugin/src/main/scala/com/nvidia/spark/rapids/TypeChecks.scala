@@ -283,10 +283,6 @@ final class TypeSig private(
       dataTypes.foldLeft(initialTypes)(_+_), maxAllowedDecimalPrecision, childTypes,
       litOnlyTypes, dataTypes.foldLeft(notes)((notes, dataType) => notes.+((dataType, note))))
 
-  def withInitialTypesPsNote(note: String): TypeSig = {
-    withPsNote(initialTypes.toSeq, note)
-  }
-
   private def isSupportedType(dataType: TypeEnum.Value): Boolean =
       initialTypes.contains(dataType)
 

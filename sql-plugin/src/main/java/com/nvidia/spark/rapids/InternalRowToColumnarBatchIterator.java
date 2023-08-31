@@ -16,8 +16,6 @@
 
 package com.nvidia.spark.rapids;
 
-import com.nvidia.spark.rapids.jni.RowConversion;
-
 import ai.rapids.cudf.ColumnVector;
 import ai.rapids.cudf.DType;
 import ai.rapids.cudf.HostColumnVector;
@@ -170,8 +168,8 @@ public abstract class InternalRowToColumnarBatchIterator implements Iterator<Col
              // at most 184 double/long values. We are branching over the size of the output to
              // know which kernel to call. If rapidsTypes.length < 100 we call the fixed-width
              // optimized version, otherwise the generic one
-             RowConversion.convertFromRowsFixedWidthOptimized(cv, rapidsTypes) :
-             RowConversion.convertFromRows(cv, rapidsTypes)) {
+             Table.convertFromRowsFixedWidthOptimized(cv, rapidsTypes) :
+             Table.convertFromRows(cv, rapidsTypes)) {
       return GpuColumnVector.from(tab, outputTypes);
     }
   }

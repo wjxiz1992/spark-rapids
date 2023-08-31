@@ -23,13 +23,12 @@ import java.nio.charset.StandardCharsets
 import scala.collection.mutable
 
 import com.nvidia.spark.rapids.Arm.closeOnExcept
-import com.nvidia.spark.rapids.shims.NullOutputStreamShim
 import org.apache.avro.Schema
 import org.apache.avro.file.DataFileConstants._
 import org.apache.avro.file.SeekableInput
 import org.apache.avro.io.{BinaryData, BinaryDecoder, DecoderFactory}
 import org.apache.avro.mapred.FsInput
-import org.apache.commons.io.output.CountingOutputStream
+import org.apache.commons.io.output.{CountingOutputStream, NullOutputStream}
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.Path
 
@@ -92,7 +91,7 @@ case class Header(
 object Header {
   /** Compute header size in bytes for serialization */
   def headerSizeInBytes(h: Header): Long = {
-    val out = new CountingOutputStream(NullOutputStreamShim.INSTANCE)
+    val out = new CountingOutputStream(NullOutputStream.NULL_OUTPUT_STREAM)
     AvroFileWriter(out).writeHeader(h)
     out.getByteCount
   }

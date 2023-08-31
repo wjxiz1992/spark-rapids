@@ -26,7 +26,7 @@ import scala.ref.WeakReference
 import scala.util.control.NonFatal
 
 import ai.rapids.cudf.{HostMemoryBuffer, JCudfSerialization, NvtxColor, NvtxRange}
-import ai.rapids.cudf.JCudfSerialization.HostConcatResult
+import ai.rapids.cudf.JCudfSerialization.{HostConcatResult, SerializedTableHeader}
 import com.nvidia.spark.rapids._
 import com.nvidia.spark.rapids.Arm.{closeOnExcept, withResource}
 import com.nvidia.spark.rapids.GpuMetric._
@@ -50,6 +50,43 @@ import org.apache.spark.sql.execution.metric.SQLMetrics
 import org.apache.spark.sql.internal.{SQLConf, StaticSQLConf}
 import org.apache.spark.sql.types.DataType
 import org.apache.spark.sql.vectorized.{ColumnarBatch, ColumnVector}
+
+object SerializedHostTableUtils {
+  /**
+   * Read in a cuDF serialized table into host memory from an input stream.
+   */
+  def readTableHeaderAndBuffer(
+      in: ObjectInputStream): (JCudfSerialization.SerializedTableHeader, HostMemoryBuffer) = {
+    val din = new DataInputStream(in)
+    val header = new JCudfSerialization.SerializedTableHeader(din)
+    if (!header.wasInitialized()) {
+      throw new IllegalStateException("Could not read serialized table header")
+    }
+    closeOnExcept(HostMemoryBuffer.allocate(header.getDataLen)) { buffer =>
+      JCudfSerialization.readTableIntoBuffer(din, header, buffer)
+      if (!header.wasDataRead()) {
+        throw new IllegalStateException("Could not read serialized table data")
+      }
+      (header, buffer)
+    }
+  }
+
+  /**
+   * Deserialize a cuDF serialized table to host build column vectors
+   */
+  def buildHostColumns(
+      header: SerializedTableHeader,
+      buffer: HostMemoryBuffer,
+      dataTypes: Array[DataType]): Array[RapidsHostColumnVector] = {
+    assert(dataTypes.length == header.getNumColumns)
+    closeOnExcept(JCudfSerialization.unpackHostColumnVectors(header, buffer)) { hostColumns =>
+      assert(hostColumns.length == dataTypes.length)
+      dataTypes.zip(hostColumns).safeMap { case (dataType, hostColumn) =>
+        new RapidsHostColumnVector(dataType, hostColumn)
+      }
+    }
+  }
+}
 
 /**
  * Class that is used to broadcast results (a contiguous host batch) to executors.
@@ -369,10 +406,9 @@ abstract class GpuBroadcastExchangeExecBase(
   @transient
   protected val timeout: Long = SQLConf.get.broadcastTimeout
 
-  // prior to Spark 3.5.0, runId is defined as `def` rather than `val` so
-  // produces a new ID on each reference. We override with a `val` so that
-  // the value is assigned once.
-  override val runId: UUID = UUID.randomUUID
+  val _runId: UUID = UUID.randomUUID()
+
+  override def runId: UUID = _runId
 
   @transient
   lazy val relationFuture: Future[Broadcast[Any]] = {
@@ -392,7 +428,7 @@ abstract class GpuBroadcastExchangeExecBase(
         SQLExecution.withExecutionId(sparkSession, executionId) {
           try {
             // Setup a job group here so later it may get cancelled by groupId if necessary.
-            sparkContext.setJobGroup(runId.toString, s"broadcast exchange (runId ${runId})",
+            sparkContext.setJobGroup(_runId.toString, s"broadcast exchange (runId ${_runId})",
               interruptOnCancel = true)
             val broadcastResult = {
               val collected =
@@ -477,7 +513,7 @@ abstract class GpuBroadcastExchangeExecBase(
       case ex: TimeoutException =>
         logError(s"Could not execute broadcast in $timeout secs.", ex)
         if (!relationFuture.isDone) {
-          sparkContext.cancelJobGroup(runId.toString)
+          sparkContext.cancelJobGroup(_runId.toString)
           relationFuture.cancel(true)
         }
         throw new SparkException(s"Could not execute broadcast in $timeout secs. " +
@@ -497,7 +533,7 @@ abstract class GpuBroadcastExchangeExecBase(
       case ex: TimeoutException =>
         logError(s"Could not execute broadcast in $timeout secs.", ex)
         if (!relationFuture.isDone) {
-          sparkContext.cancelJobGroup(runId.toString)
+          sparkContext.cancelJobGroup(_runId.toString)
           relationFuture.cancel(true)
         }
         throw new SparkException(s"Could not execute broadcast in $timeout secs. " +

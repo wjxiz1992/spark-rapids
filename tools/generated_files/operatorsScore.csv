@@ -80,7 +80,6 @@ CollectSet,4
 Concat,4
 ConcatWs,4
 Contains,4
-Conv,4
 Cos,4
 Cosh,4
 Cot,4
@@ -99,7 +98,6 @@ DayOfWeek,4
 DayOfYear,4
 DenseRank,4
 Divide,4
-DynamicPruningExpression,4
 ElementAt,4
 EndsWith,4
 EqualNullSafe,4

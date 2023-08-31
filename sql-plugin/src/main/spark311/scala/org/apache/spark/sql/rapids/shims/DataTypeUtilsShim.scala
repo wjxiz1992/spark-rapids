@@ -43,8 +43,4 @@ import org.apache.spark.sql.types.StructType
 object DataTypeUtilsShim {
   def fromAttributes(attributes: Seq[Attribute]): StructType =
     StructType.fromAttributes(attributes)
-
-  def toAttributes(structType: StructType): Seq[Attribute] =
-    structType.toAttributes
-
 }

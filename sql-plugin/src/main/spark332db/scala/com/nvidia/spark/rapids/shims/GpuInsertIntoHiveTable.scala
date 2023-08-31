@@ -18,7 +18,6 @@
 {"spark": "332db"}
 {"spark": "340"}
 {"spark": "341"}
-{"spark": "350"}
 spark-rapids-shim-json-lines ***/
 package org.apache.spark.sql.hive.rapids.shims
 
@@ -40,6 +39,7 @@ import org.apache.spark.sql.catalyst.util.CaseInsensitiveMap
 import org.apache.spark.sql.execution.SparkPlan
 import org.apache.spark.sql.execution.command.CommandUtils
 import org.apache.spark.sql.hive.HiveExternalCatalog
+import org.apache.spark.sql.hive.HiveShim.{ShimFileSinkDesc => FileSinkDesc}
 import org.apache.spark.sql.hive.client.HiveClientImpl
 import org.apache.spark.sql.hive.execution.InsertIntoHiveTable
 import org.apache.spark.sql.hive.rapids.{GpuHiveTextFileFormat, GpuSaveAsHiveFile, RapidsHiveErrors}
@@ -142,6 +142,7 @@ case class GpuInsertIntoHiveTable(
       fileFormat: ColumnarFileFormat,
       tmpLocation: Path,
       child: SparkPlan): Unit = {
+    val fileSinkConf = new FileSinkDesc(tmpLocation.toString, tableDesc, false)
 
     val numDynamicPartitions = partition.values.count(_.isEmpty)
     val numStaticPartitions = partition.values.count(_.nonEmpty)
@@ -152,7 +153,7 @@ case class GpuInsertIntoHiveTable(
     }
 
     // All partition column names in the format of "<column name 1>/<column name 2>/..."
-    val partitionColumns = FileSinkDescShim.getPartitionColumns(tmpLocation, tableDesc)
+    val partitionColumns = fileSinkConf.getTableInfo.getProperties.getProperty("partition_columns")
     val partitionColumnNames = Option(partitionColumns).map(_.split("/")).getOrElse(Array.empty)
 
     // By this time, the partition map must match the table's partition columns

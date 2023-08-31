@@ -46,8 +46,7 @@ object TrampolineUtil {
 
   def fromAttributes(attrs: Seq[Attribute]): StructType = DataTypeUtilsShim.fromAttributes(attrs)
 
-  def toAttributes(structType: StructType): Seq[Attribute] =
-    DataTypeUtilsShim.toAttributes(structType)
+  def toAttributes(structType: StructType): Seq[Attribute] = structType.toAttributes
 
   def jsonValue(dataType: DataType): JsonAST.JValue = dataType.jsonValue
 
