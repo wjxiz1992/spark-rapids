@@ -94,7 +94,10 @@ object ScaleTest {
           spark.sparkContext.addSparkListener(taskFailureListener)
 
           val start = System.nanoTime()
-          spark.sql(query.content).write.mode(mode).format(format).save(s"${baseOutputPath}_$i")
+          Range(0,3).par.foreach{ j =>
+            spark.sql(query.content).write.mode(mode).format(format)
+              .save(s"${baseOutputPath}_${i}_${j}")}
+//          spark.sql(query.content).write.mode(mode).format(format).save(s"${baseOutputPath}_$i")
           val end = System.nanoTime()
           val elapsed = NANOSECONDS.toMillis(end - start)
           executionTimes += elapsed
@@ -143,6 +146,15 @@ object ScaleTest {
     }
   }
 
+  // only workaround on NGC disk limit issue
+  private def addLimit100(input: Map[String, TestQuery]): Map[String, TestQuery] = {
+    input.map {
+      case (key, obj) =>
+        val withLimit = obj.content + " LIMIT 100"
+        key -> obj.copy(content = withLimit)
+    }
+  }
+
   private def runScaleTest(config: Config): Unit = {
     // Init SparkSession
     val spark = SparkSession.builder()
@@ -152,13 +164,14 @@ object ScaleTest {
     spark.sparkContext.addSparkListener(idleSessionListener)
     val querySpecs = new QuerySpecs(config, spark)
     querySpecs.initViews()
-    val queryMap = querySpecs.getCandidateQueries
+    val queryMap = addLimit100(querySpecs.getCandidateQueries)
     if (config.dry) {
       printQueries(spark, queryMap)
       sys.exit(1)
     }
     var results = Seq[QueryMeta]()
-    for ((queryName, query) <- queryMap) {
+    queryMap.par.map {
+      case (queryName, query) =>
       val outputPath = s"${config.outputDir}/$queryName"
       println(s"Running Query: $queryName for ${query.iterations} iterations")
       println(s"${query.content}")
@@ -227,6 +240,9 @@ object ScaleTest {
       .optional()
         .action((_, c) => c.copy(dry = true))
         .text("Flag argument. Only print the queries but not execute them.")
+      opt[Unit]("throughput")
+        .optional()
+
     }
   }
 
