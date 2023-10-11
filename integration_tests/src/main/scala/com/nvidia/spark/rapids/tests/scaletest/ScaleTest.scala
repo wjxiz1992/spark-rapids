@@ -77,6 +77,9 @@ object ScaleTest {
     val status = ListBuffer[String]()
 
     (1 to query.iterations).foreach(i => {
+      println(s"********** executing set query name:${query.name} ************")
+      spark.sparkContext.setJobGroup( query.name, s"$i")
+      println(s"Iteration: $i")
       while (idleSessionListener.isBusy()){
         // Scala Test aims for stability not performance. And the sleep time will not be calculated
         // into execution time.
@@ -87,14 +90,18 @@ object ScaleTest {
       val taskFailureListener = new TaskFailureListener
       try {
         val future = scala.concurrent.Future {
-          spark.sparkContext.setJobGroup(query.name, s"query=${query.name},iteration=$i")
-          println(s"Iteration: $i")
 
           spark.conf.set("spark.sql.shuffle.partitions", query.shufflePartitions)
           spark.sparkContext.addSparkListener(taskFailureListener)
 
           val start = System.nanoTime()
-          spark.sql(query.content).write.mode(mode).format(format).save(s"${baseOutputPath}_$i")
+          Range(1,4).par.foreach{ j => spark.sql(query.content).write
+            .mode(mode).format(format).save(s"${baseOutputPath}_${i}_${j}")}
+//          spark.range(3).foreach{ j =>
+//            spark.sql(query.content).write.mode(mode).format(format).save
+//            (s"${baseOutputPath}_${i}_${j}")
+//          }
+//          spark.sql(query.content).write.mode(mode).format(format).save(s"${baseOutputPath}_$i")
           val end = System.nanoTime()
           val elapsed = NANOSECONDS.toMillis(end - start)
           executionTimes += elapsed
@@ -124,6 +131,10 @@ object ScaleTest {
       } finally {
         spark.sparkContext.removeSparkListener(taskFailureListener)
       }
+      println("******** clear job group *********")
+      spark.sparkContext.clearJobGroup()
+//      spark.sparkContext.setLocalProperty("callSite.short",null)
+      Thread.sleep(3*1000)
     })
     QueryMeta(query.name, query.content, status, exceptions.asScala.toSeq, executionTimes)
   }
@@ -138,11 +149,20 @@ object ScaleTest {
     for ((queryName, query) <- queryMap) {
       println("*"*80)
       println(queryName)
+      println(query.name)
       println(query.content)
-      spark.sql(query.content).explain()
+//      spark.sql(query.content).explain()
     }
   }
 
+  // only workaround on NGC disk limit issue
+  private def addLimit100(input: Map[String, TestQuery]): Map[String, TestQuery] = {
+    input.map {
+      case (key, obj) =>
+        val withLimit = obj.content + " LIMIT 100"
+        key -> obj.copy(content = withLimit)
+    }
+  }
   private def runScaleTest(config: Config): Unit = {
     // Init SparkSession
     val spark = SparkSession.builder()
@@ -152,7 +172,7 @@ object ScaleTest {
     spark.sparkContext.addSparkListener(idleSessionListener)
     val querySpecs = new QuerySpecs(config, spark)
     querySpecs.initViews()
-    val queryMap = querySpecs.getCandidateQueries
+    val queryMap = addLimit100(querySpecs.getCandidateQueries)
     if (config.dry) {
       printQueries(spark, queryMap)
       sys.exit(1)
