@@ -51,6 +51,7 @@ object ScaleTest {
       queries: Seq[String] = Seq(),
       overwrite: Boolean = false,
       timeout: Long = 600000L,
+      throughput: Int = 1,
       dry: Boolean = false)
 
   /**
@@ -68,6 +69,7 @@ object ScaleTest {
       baseOutputPath: String,
       overwrite: Boolean,
       format: String,
+      throughput: Int,
       spark: SparkSession,
       idleSessionListener: IdleSessionListener): QueryMeta
   = {
@@ -94,7 +96,7 @@ object ScaleTest {
           spark.sparkContext.addSparkListener(taskFailureListener)
 
           val start = System.nanoTime()
-          Range(0,3).par.foreach{ j =>
+          Range(0,throughput).par.foreach{ j =>
             spark.sql(query.content).write.mode(mode).format(format)
               .save(s"${baseOutputPath}_${i}_${j}")}
 //          spark.sql(query.content).write.mode(mode).format(format).save(s"${baseOutputPath}_$i")
@@ -164,7 +166,8 @@ object ScaleTest {
     spark.sparkContext.addSparkListener(idleSessionListener)
     val querySpecs = new QuerySpecs(config, spark)
     querySpecs.initViews()
-    val queryMap = addLimit100(querySpecs.getCandidateQueries)
+//    val queryMap = addLimit100(querySpecs.getCandidateQueries)
+    val queryMap = querySpecs.getCandidateQueries
     if (config.dry) {
       printQueries(spark, queryMap)
       sys.exit(1)
@@ -177,7 +180,7 @@ object ScaleTest {
       println(s"${query.content}")
       // run one query for several iterations in a row
       val queryMeta = runOneQueryForIterations(query, outputPath, config.overwrite, config.format,
-        spark, idleSessionListener)
+        config.throughput, spark, idleSessionListener)
       results  = results :+ queryMeta
     }
     val report = new TestReport(config, results)
@@ -240,8 +243,10 @@ object ScaleTest {
       .optional()
         .action((_, c) => c.copy(dry = true))
         .text("Flag argument. Only print the queries but not execute them.")
-      opt[Unit]("throughput")
+      opt[Int]("throughput")
         .optional()
+        .action((x, c) => c.copy(throughput = x))
+        .text("number of concurrent streams to run at the same time")
 
     }
   }
