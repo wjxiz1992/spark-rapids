@@ -149,13 +149,13 @@ object ScaleTest {
   }
 
   // only workaround on NGC disk limit issue
-//  private def addLimit100(input: Map[String, TestQuery]): Map[String, TestQuery] = {
-//    input.map {
-//      case (key, obj) =>
-//        val withLimit = obj.content + " LIMIT 100"
-//        key -> obj.copy(content = withLimit)
-//    }
-//  }
+  private def addLimit100(input: Map[String, TestQuery]): Map[String, TestQuery] = {
+    input.map {
+      case (key, obj) =>
+        val withLimit = obj.content + " LIMIT 100"
+        key -> obj.copy(content = withLimit)
+    }
+  }
 
   private def runScaleTest(config: Config): Unit = {
     // Init SparkSession
@@ -166,8 +166,8 @@ object ScaleTest {
     spark.sparkContext.addSparkListener(idleSessionListener)
     val querySpecs = new QuerySpecs(config, spark)
     querySpecs.initViews()
-//    val queryMap = addLimit100(querySpecs.getCandidateQueries)
-    val queryMap = querySpecs.getCandidateQueries
+    val queryMap = addLimit100(querySpecs.getCandidateQueries)
+//    val queryMap = querySpecs.getCandidateQueries
     if (config.dry) {
       printQueries(spark, queryMap)
       sys.exit(1)
