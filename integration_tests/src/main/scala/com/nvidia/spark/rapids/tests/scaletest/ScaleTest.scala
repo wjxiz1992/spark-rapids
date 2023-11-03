@@ -143,6 +143,15 @@ object ScaleTest {
     }
   }
 
+
+  private def addLimit100(input: Map[String, TestQuery]): Map[String, TestQuery] = {
+    input.map {
+      case (key, obj) =>
+        val withLimit = obj.content + " LIMIT 100"
+        key -> obj.copy(content = withLimit)
+    }
+  }
+
   private def runScaleTest(config: Config): Unit = {
     // Init SparkSession
     val spark = SparkSession.builder()
@@ -152,12 +161,13 @@ object ScaleTest {
     spark.sparkContext.addSparkListener(idleSessionListener)
     val querySpecs = new QuerySpecs(config, spark)
     querySpecs.initViews()
-    val queryMap = querySpecs.getCandidateQueries
+    val queryMap = addLimit100(querySpecs.getCandidateQueries)
     if (config.dry) {
       printQueries(spark, queryMap)
       sys.exit(1)
     }
     var results = Seq[QueryMeta]()
+    for (_ <- 1 to 40) {
     for ((queryName, query) <- queryMap) {
       val outputPath = s"${config.outputDir}/$queryName"
       println(s"Running Query: $queryName for ${query.iterations} iterations")
@@ -166,6 +176,7 @@ object ScaleTest {
       val queryMeta = runOneQueryForIterations(query, outputPath, config.overwrite, config.format,
         spark, idleSessionListener)
       results  = results :+ queryMeta
+    }
     }
     val report = new TestReport(config, results)
     report.save()
