@@ -173,6 +173,7 @@ object ScaleTest {
       sys.exit(1)
     }
     var results = Seq[QueryMeta]()
+    (1 to 40).foreach{ _ =>
     queryMap.par.map {
       case (queryName, query) =>
       val outputPath = s"${config.outputDir}/$queryName"
@@ -182,6 +183,7 @@ object ScaleTest {
       val queryMeta = runOneQueryForIterations(query, outputPath, config.overwrite, config.format,
         config.throughput, spark, idleSessionListener)
       results  = results :+ queryMeta
+    }
     }
     val report = new TestReport(config, results)
     report.save()
