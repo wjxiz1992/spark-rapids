@@ -21,7 +21,8 @@ from data_gen import *
 from datetime import timezone
 from conftest import is_databricks_runtime
 from marks import approximate_float, allow_non_gpu, ignore_order
-from spark_session import with_cpu_session, with_gpu_session, is_before_spark_330
+from spark_session import with_cpu_session, with_gpu_session, is_before_spark_330, is_before_spark_340, \
+    is_before_spark_341
 
 json_supported_gens = [
     # Spark does not escape '\r' or '\n' even though it uses it to mark end of record
@@ -203,7 +204,7 @@ def test_json_ts_formats_round_trip(spark_tmp_path, date_format, ts_part, v1_ena
             conf=updated_conf)
 
 @allow_non_gpu('FileSourceScanExec', 'ProjectExec')
-@pytest.mark.skipif(is_before_spark_340(), reason='`TIMESTAMP_NTZ` is only supported in Spark 340+')
+@pytest.mark.skipif(is_before_spark_341(), reason='`TIMESTAMP_NTZ` is only supported in PySpark 341+')
 @pytest.mark.parametrize('ts_part', json_supported_ts_parts)
 @pytest.mark.parametrize('date_format', json_supported_date_formats)
 @pytest.mark.parametrize("timestamp_type", ["TIMESTAMP_LTZ", "TIMESTAMP_NTZ"])
@@ -211,7 +212,7 @@ def test_json_ts_formats_round_trip_ntz_v1(spark_tmp_path, date_format, ts_part,
     json_ts_formats_round_trip_ntz(spark_tmp_path, date_format, ts_part, timestamp_type, 'json', 'FileSourceScanExec')
 
 @allow_non_gpu('BatchScanExec', 'ProjectExec')
-@pytest.mark.skipif(is_before_spark_340(), reason='`TIMESTAMP_NTZ` is only supported in Spark 340+')
+@pytest.mark.skipif(is_before_spark_341(), reason='`TIMESTAMP_NTZ` is only supported in PySpark 341+')
 @pytest.mark.parametrize('ts_part', json_supported_ts_parts)
 @pytest.mark.parametrize('date_format', json_supported_date_formats)
 @pytest.mark.parametrize("timestamp_type", ["TIMESTAMP_LTZ", "TIMESTAMP_NTZ"])
@@ -289,6 +290,43 @@ def test_basic_json_read(std_input_path, filename, schema, read_func, allow_non_
         { "allowNonNumericNumbers": allow_non_numeric_numbers,
           "allowNumericLeadingZeros": allow_numeric_leading_zeros}),
         conf=updated_conf)
+
+@ignore_order
+@pytest.mark.parametrize('filename', [
+    'malformed1.ndjson',
+    'malformed2.ndjson',
+    'malformed3.ndjson',
+    'malformed4.ndjson'
+])
+@pytest.mark.parametrize('read_func', [read_json_df, read_json_sql])
+@pytest.mark.parametrize('schema', [_int_schema])
+@pytest.mark.parametrize('v1_enabled_list', ["", "json"])
+def test_read_invalid_json(spark_tmp_table_factory, std_input_path, read_func, filename, schema, v1_enabled_list):
+    conf = copy_and_update(_enable_all_types_conf, {'spark.sql.sources.useV1SourceList': v1_enabled_list})
+    assert_gpu_and_cpu_are_equal_collect(
+        read_func(std_input_path + '/' + filename,
+                  schema,
+                  spark_tmp_table_factory,
+                  {}),
+        conf=conf)
+
+@pytest.mark.parametrize('filename', [
+    'mixed-primitives.ndjson',
+    'mixed-primitives-nested.ndjson',
+    'simple-nested.ndjson',
+    pytest.param('mixed-nested.ndjson', marks=pytest.mark.xfail(reason='https://github.com/NVIDIA/spark-rapids/issues/9353'))
+])
+@pytest.mark.parametrize('read_func', [read_json_df, read_json_sql])
+@pytest.mark.parametrize('schema', [_int_schema])
+@pytest.mark.parametrize('v1_enabled_list', ["", "json"])
+def test_read_valid_json(spark_tmp_table_factory, std_input_path, read_func, filename, schema, v1_enabled_list):
+    conf = copy_and_update(_enable_all_types_conf, {'spark.sql.sources.useV1SourceList': v1_enabled_list})
+    assert_gpu_and_cpu_are_equal_collect(
+        read_func(std_input_path + '/' + filename,
+                  schema,
+                  spark_tmp_table_factory,
+                  {}),
+        conf=conf)
 
 @approximate_float
 @pytest.mark.parametrize('filename', [
@@ -526,3 +564,49 @@ def test_read_case_col_name(spark_tmp_path, v1_enabled_list, col_name):
     assert_gpu_and_cpu_are_equal_collect(
             lambda spark : spark.read.schema(gen.data_type).json(data_path).selectExpr(col_name),
             conf=all_confs)
+
+
+@pytest.mark.parametrize('data_gen', [byte_gen,
+    boolean_gen,
+    short_gen,
+    int_gen,
+    long_gen,
+    pytest.param(float_gen, marks=pytest.mark.xfail(reason='https://github.com/NVIDIA/spark-rapids/issues/9350')),
+    pytest.param(double_gen, marks=pytest.mark.xfail(reason='https://github.com/NVIDIA/spark-rapids/issues/9350')),
+    pytest.param(date_gen, marks=pytest.mark.xfail(reason='https://github.com/NVIDIA/spark-rapids/issues/9515')),
+    pytest.param(timestamp_gen, marks=pytest.mark.xfail(reason='https://github.com/NVIDIA/spark-rapids/issues/9515')),
+    StringGen('[A-Za-z0-9]{0,10}', nullable=True),
+    pytest.param(StringGen(nullable=True), marks=pytest.mark.xfail(reason='https://github.com/NVIDIA/spark-rapids/issues/9514')),
+], ids=idfn)
+@pytest.mark.parametrize('ignore_null_fields', [
+    True,
+    pytest.param(False, marks=pytest.mark.xfail(reason='https://github.com/NVIDIA/spark-rapids/issues/9516'))
+])
+@pytest.mark.parametrize('pretty', [
+    pytest.param(True, marks=pytest.mark.xfail(reason='https://github.com/NVIDIA/spark-rapids/issues/9517')),
+    False
+])
+def test_structs_to_json(spark_tmp_path, data_gen, ignore_null_fields, pretty):
+    struct_gen = StructGen([
+        ('a', data_gen),
+        ("b", StructGen([('child', data_gen)], nullable=True)),
+        ("c", ArrayGen(StructGen([('child', data_gen)], nullable=True))),
+        ("d", MapGen(LongGen(nullable=False), data_gen)),
+        ("d", MapGen(StringGen('[A-Za-z0-9]{0,10}', nullable=False), data_gen)),
+        ("e", ArrayGen(MapGen(LongGen(nullable=False), data_gen), nullable=True)),
+    ], nullable=False)
+    gen = StructGen([('my_struct', struct_gen)], nullable=False)
+
+    options = { 'ignoreNullFields': ignore_null_fields,
+                'pretty': pretty }
+
+    def struct_to_json(spark):
+        df = gen_df(spark, gen)
+        return df.withColumn("my_json", f.to_json("my_struct", options)).drop("my_struct")
+
+    conf = copy_and_update(_enable_all_types_conf,
+        { 'spark.rapids.sql.expression.StructsToJson': True })
+
+    assert_gpu_and_cpu_are_equal_collect(
+        lambda spark : struct_to_json(spark),
+        conf=conf)
