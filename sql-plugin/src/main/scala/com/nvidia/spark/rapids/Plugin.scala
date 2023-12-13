@@ -522,7 +522,6 @@ class RapidsExecutorPlugin extends ExecutorPlugin with Logging {
     val nsysStopCommand = "nsys stop"
     val result: String = nsysStopCommand.!!
     println(s"Nsys Stop Command output: $result")
-    Thread.sleep(120* 1000)
     // here the report is generated. customer need to write another command to do HDFS upload
     // val hdfsUploadCommand = "..."
     // ...
