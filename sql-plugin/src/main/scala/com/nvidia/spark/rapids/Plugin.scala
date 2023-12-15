@@ -518,13 +518,6 @@ class RapidsExecutorPlugin extends ExecutorPlugin with Logging {
     extraExecutorPlugins.foreach(_.shutdown())
     FileCache.shutdown()
     GpuCoreDumpHandler.shutdown()
-
-    val nsysStopCommand = "nsys stop"
-    val result: String = nsysStopCommand.!!
-    println(s"Nsys Stop Command output: $result")
-    // here the report is generated. customer need to write another command to do HDFS upload
-    // val hdfsUploadCommand = "..."
-    // ...
   }
 
   override def onTaskFailed(failureReason: TaskFailedReason): Unit = {

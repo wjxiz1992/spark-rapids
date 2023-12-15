@@ -191,6 +191,10 @@ class AcceleratedColumnarToRowIterator(
       loadNextBatch()
       at < total
     } else {
+      val nsysStopCommand = "nsys stop"
+      import scala.sys.process._
+      val result: String = nsysStopCommand.!!
+      println(s"Nsys Stop Command output: $result")
       itHasNext
     }
   }
