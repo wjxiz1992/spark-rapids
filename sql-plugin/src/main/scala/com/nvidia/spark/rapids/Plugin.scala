@@ -410,7 +410,7 @@ class RapidsExecutorPlugin extends ExecutorPlugin with Logging {
       FileCache.init(pluginContext)
       // here customer need to make sure the path exists and is writable
       val nsysStartComamnd = "nsys start -o /opt/spark/work-dir/test_%h_%p" +
-        ".nsys-rep"
+        ".nsys-rep --gpu-metrics-device all"
       val result: String = nsysStartComamnd.!!
       println(s"Nsys Start Command output: $result")
     } catch {
