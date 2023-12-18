@@ -408,6 +408,11 @@ class RapidsExecutorPlugin extends ExecutorPlugin with Logging {
       extraExecutorPlugins.foreach(_.init(pluginContext, extraConf))
       GpuSemaphore.initialize()
       FileCache.init(pluginContext)
+      // here customer need to make sure the path exists and is writable
+      val nsysStartComamnd = "nsys start -o /opt/spark/work-dir/test_%h_%p" +
+        ".nsys-rep"
+      val result: String = nsysStartComamnd.!!
+      println(s"Nsys Start Command output: $result")
     } catch {
       // Exceptions in executor plugin can cause a single thread to die but the executor process
       // sticks around without any useful info until it hearbeat times out. Print what happened
