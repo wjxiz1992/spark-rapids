@@ -2204,7 +2204,7 @@ val SHUFFLE_COMPRESSION_LZ4_CHUNK_SIZE = conf("spark.rapids.shuffle.compression.
 
   /**
    * refer to dev doc: `replay-exec.md`
-   * only supports "project", will supports "agg" later
+   * only supports "project" now
    */
   val TEST_REPLAY_EXEC_TYPE =
     conf("spark.rapids.sql.test.replay.exec.type")
@@ -2219,7 +2219,7 @@ val SHUFFLE_COMPRESSION_LZ4_CHUNK_SIZE = conf("spark.rapids.shuffle.compression.
             "meta and column batch data")
         .internal()
         .stringConf
-        .createWithDefault("/tmp")
+        .createWithDefault("file:/tmp")
 
   val TEST_REPLAY_EXEC_THRESHOLD_MS =
     conf("spark.rapids.sql.test.replay.exec.threshold.MS")
@@ -2227,21 +2227,14 @@ val SHUFFLE_COMPRESSION_LZ4_CHUNK_SIZE = conf("spark.rapids.shuffle.compression.
             " exceeds this threshold time in MS")
         .internal()
         .integerConf
-        .createWithDefault(100)
+        .createWithDefault(1000)
 
-  val TEST_REPLAY_EXEC_MAX_BATCH_NUM =
-    conf("spark.rapids.sql.test.replay.exec.maxBatchNum")
+  val TEST_REPLAY_EXEC_BATCH_LIMIT =
+    conf("spark.rapids.sql.test.replay.batch.limit")
         .doc("Only for tests: Max dumping number of column batches")
         .internal()
         .integerConf
         .createWithDefault(1)
-
-  val TEST_REPLAY_EXEC_FILTER_INCLUDE =
-    conf("spark.rapids.sql.test.replay.exec.filter.include")
-        .doc("Only for tests: Only dump when the Exec SQL contains this filter pattern")
-        .internal()
-        .stringConf
-        .createWithDefault("")
 
   private def printSectionHeader(category: String): Unit =
     println(s"\n### $category")
@@ -3038,9 +3031,7 @@ class RapidsConf(conf: Map[String, String]) extends Logging {
 
   lazy val testReplayExecThresholdMS: Int = get(TEST_REPLAY_EXEC_THRESHOLD_MS)
 
-  lazy val testReplayExecFilterInclude: String = get(TEST_REPLAY_EXEC_FILTER_INCLUDE)
-
-  lazy val testReplayExecMaxBatchNum: Int = get(TEST_REPLAY_EXEC_MAX_BATCH_NUM)
+  lazy val testReplayExecBatchLimit: Int = get(TEST_REPLAY_EXEC_BATCH_LIMIT)
 
   private val optimizerDefaults = Map(
     // this is not accurate because CPU projections do have a cost due to appending values
