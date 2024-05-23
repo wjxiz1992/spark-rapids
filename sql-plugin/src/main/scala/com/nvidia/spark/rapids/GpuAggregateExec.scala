@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2023, NVIDIA CORPORATION.
+ * Copyright (c) 2019-2024, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -35,6 +35,7 @@ import com.nvidia.spark.rapids.shims.{AggregationTagging, ShimUnaryExecNode}
 import org.apache.spark.TaskContext
 import org.apache.spark.internal.Logging
 import org.apache.spark.rdd.RDD
+import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.{Alias, Ascending, Attribute, AttributeReference, AttributeSeq, AttributeSet, Expression, ExprId, If, NamedExpression, NullsFirst, SortOrder}
 import org.apache.spark.sql.catalyst.expressions.aggregate._
@@ -46,8 +47,10 @@ import org.apache.spark.sql.execution.{ExplainUtils, SortExec, SparkPlan}
 import org.apache.spark.sql.execution.aggregate.{BaseAggregateExec, HashAggregateExec, ObjectHashAggregateExec, SortAggregateExec}
 import org.apache.spark.sql.rapids.aggregate.{CpuToGpuAggregateBufferConverter, CudfAggregate, GpuAggregateExpression, GpuToCpuAggregateBufferConverter}
 import org.apache.spark.sql.rapids.execution.{GpuShuffleMeta, TrampolineUtil}
+import org.apache.spark.sql.rapids.test.ReplayDumper
 import org.apache.spark.sql.types._
 import org.apache.spark.sql.vectorized.ColumnarBatch
+import org.apache.spark.util.SerializableConfiguration
 
 object AggregateUtils {
 
@@ -1260,7 +1263,7 @@ abstract class GpuBaseAggregateMeta[INPUT <: SparkPlan](
             estimatedPreProcessGrowth > 1.1)) &&
         canUsePartialSortAgg &&
         groupingCanBeSorted
-
+    val testReplay = ReplayDumper.enabledReplayForHashAggregate(conf)
     GpuHashAggregateExec(
       aggRequiredChildDistributionExpressions,
       gpuGroupingExpressions,
@@ -1272,7 +1275,7 @@ abstract class GpuBaseAggregateMeta[INPUT <: SparkPlan](
       useTiered,
       estimatedPreProcessGrowth,
       conf.forceSinglePassPartialSortAgg,
-      allowSinglePassAgg)
+      allowSinglePassAgg, testReplay)
   }
 }
 
@@ -1358,7 +1361,8 @@ abstract class GpuTypedImperativeSupportedAggregateExecMeta[INPUT <: BaseAggrega
         // For now we are just going to go with the original hash aggregation
         1.0,
         false,
-        false)
+        false,
+        ReplayDumper.enabledReplayForHashAggregate(conf))
     } else {
       super.convertToGpu()
     }
@@ -1719,7 +1723,22 @@ case class GpuHashAggregateExec(
     configuredTieredProjectEnabled: Boolean,
     estimatedPreProcessGrowth: Double,
     forceSinglePassAgg: Boolean,
-    allowSinglePassAgg: Boolean) extends ShimUnaryExecNode with GpuExec {
+    allowSinglePassAgg: Boolean,
+    dumpForReplay: Boolean) extends ShimUnaryExecNode with GpuExec {
+
+
+  // for testing purpose; used by dumping for replay feature
+  private val replayDumperOpt: Option[ReplayDumper] = if (dumpForReplay) {
+    val spark = SparkSession.active
+    val hadoopConf = new SerializableConfiguration(spark.sparkContext.hadoopConfiguration)
+    val dumpDir = conf.getConfString(RapidsConf.TEST_REPLAY_EXEC_DUMP_DIR.key)
+    val thresholdMS = conf.getConfString(RapidsConf.TEST_REPLAY_EXEC_THRESHOLD_MS.key).toInt
+    val batchLimit = conf.getConfString(RapidsConf.TEST_REPLAY_EXEC_BATCH_LIMIT.key).toInt
+    val hashAggregateHashCode = Math.abs(this.hashCode())
+    Some(ReplayDumper(hadoopConf, dumpDir, thresholdMS, batchLimit, hashAggregateHashCode))
+  } else {
+    None
+  }
 
   // lifted directly from `BaseAggregateExec.inputAttributes`, edited comment.
   def inputAttributes: Seq[Attribute] =
@@ -1796,9 +1815,14 @@ case class GpuHashAggregateExec(
 
     val boundGroupExprs = GpuBindReferences.bindGpuReferencesTiered(groupingExprs, inputAttrs, true)
 
+    replayDumperOpt.foreach(d => d.dumpMeta[GpuTieredProject]("GpuTieredProject", boundGroupExprs))
+
+
     rdd.mapPartitions { cbIter =>
       val postBoundReferences = GpuAggFinalPassIterator.setupReferences(groupingExprs,
         aggregateExprs, aggregateAttrs, resultExprs, modeInfo)
+
+      aggMetrics.opTime.value
 
       new DynamicGpuPartialSortAggregateIterator(cbIter, inputAttrs, groupingExprs,
         boundGroupExprs, aggregateExprs, aggregateAttrs, resultExprs, modeInfo,

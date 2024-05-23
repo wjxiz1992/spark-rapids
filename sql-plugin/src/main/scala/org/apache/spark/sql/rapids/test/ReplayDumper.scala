@@ -110,4 +110,7 @@ case class ReplayDumper(
 
 object ReplayDumper {
   def enabledReplayForProject(conf: RapidsConf): Boolean = conf.testReplayExecType.equals("project")
+
+  def enabledReplayForHashAggregate(conf: RapidsConf): Boolean =
+    conf.testReplayExecType.equals("hashaggregate")
 }
