@@ -181,7 +181,8 @@ class AggHelper(
     aggregateExpressions: Seq[GpuAggregateExpression],
     forceMerge: Boolean,
     isSorted: Boolean = false,
-    useTieredProject: Boolean = true) extends Serializable {
+    useTieredProject: Boolean = true,
+    replayDumperOpt: Option[ReplayDumper]) extends Serializable {
 
   private var doSortAgg = isSorted
 
@@ -300,22 +301,43 @@ class AggHelper(
     ret
   }
 
+  def aggregateWithoutCombineSb(sb: SpillableColumnarBatch, computeAggTime: GpuMetric,
+      opTime: GpuMetric, numAggs: GpuMetric): Iterator[SpillableColumnarBatch] = {
+    withRetry(sb, splitSpillableInHalfByRows) { preProcessedAttempt =>
+      withResource(new NvtxWithMetrics("computeAggregate", NvtxColor.CYAN, computeAggTime,
+        opTime)) { _ =>
+        withResource(preProcessedAttempt.getColumnarBatch()) { cb =>
+          SpillableColumnarBatch(
+            aggregate(cb, numAggs),
+            SpillPriorities.ACTIVE_BATCHING_PRIORITY)
+        }
+      }
+    }
+  }
+
   def aggregateWithoutCombine(metrics: GpuHashAggregateMetrics,
       preProcessed: Iterator[SpillableColumnarBatch]): Iterator[SpillableColumnarBatch] = {
     val computeAggTime = metrics.computeAggTime
     val opTime = metrics.opTime
     val numAggs = metrics.numAggOps
     preProcessed.flatMap { sb =>
-      withRetry(sb, splitSpillableInHalfByRows) { preProcessedAttempt =>
-        withResource(new NvtxWithMetrics("computeAggregate", NvtxColor.CYAN, computeAggTime,
-          opTime)) { _ =>
-          withResource(preProcessedAttempt.getColumnarBatch()) { cb =>
-            SpillableColumnarBatch(
-              aggregate(cb, numAggs),
-              SpillPriorities.ACTIVE_BATCHING_PRIORITY)
-          }
+      // This is for test purpose
+      replayDumperOpt.foreach { _ =>
+        // increase refCount because `projectAndCloseWithRetrySingleBatch` will close cb
+        for (i <- 0 until sb.getColumnarBatch().numCols()) {
+          sb.getColumnarBatch().column(i).asInstanceOf[GpuColumnVector].incRefCount()
         }
       }
+      val previousTime = opTime.value
+      val ret = aggregateWithoutCombineSb(sb, computeAggTime, opTime, numAggs)
+      // This is for test purpose; dump if feature is enabled
+      replayDumperOpt.foreach { d =>
+        withResource(sb) { _ =>
+          val elapsedTimeNS = opTime.value - previousTime
+          d.dumpColumnBatch(elapsedTimeNS, sb.getColumnarBatch())
+        }
+      }
+      ret
     }
   }
 
