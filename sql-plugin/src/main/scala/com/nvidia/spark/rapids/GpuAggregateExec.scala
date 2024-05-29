@@ -743,7 +743,8 @@ class GpuMergeAggregateIterator(
     modeInfo: AggregateModeInfo,
     metrics: GpuHashAggregateMetrics,
     configuredTargetBatchSize: Long,
-    useTieredProject: Boolean)
+    useTieredProject: Boolean,
+    replayDumperOpt: Option[ReplayDumper])
     extends Iterator[ColumnarBatch] with AutoCloseable with Logging {
   private[this] val isReductionOnly = groupingExpressions.isEmpty
   private[this] val targetMergeBatchSize = computeTargetMergeBatchSize(configuredTargetBatchSize)
@@ -910,7 +911,7 @@ class GpuMergeAggregateIterator(
 
   private lazy val concatAndMergeHelper =
     new AggHelper(inputAttributes, groupingExpressions, aggregateExpressions,
-      forceMerge = true, useTieredProject = useTieredProject)
+      forceMerge = true, useTieredProject = useTieredProject, replayDumperOpt = replayDumperOpt)
 
   /**
    * Concatenate batches together and perform a merge aggregation on the result. The input batches
@@ -990,7 +991,8 @@ class GpuMergeAggregateIterator(
 
       private val mergeSortedHelper =
         new AggHelper(inputAttributes, groupingExpressions, aggregateExpressions,
-          forceMerge = true, isSorted = true, useTieredProject = useTieredProject)
+          forceMerge = true, isSorted = true, useTieredProject = useTieredProject,
+          replayDumperOpt = replayDumperOpt)
 
       override def next(): ColumnarBatch = {
         // batches coming out of the sort need to be merged
@@ -1258,7 +1260,7 @@ abstract class GpuBaseAggregateMeta[INPUT <: SparkPlan](
         gpuChild.output, inputAggBufferAttributes)
       val preProcessAggHelper = new AggHelper(
         inputAttrs, gpuGroupingExpressions, gpuAggregateExpressions,
-        forceMerge = false, useTieredProject = useTiered)
+        forceMerge = false, useTieredProject = useTiered, replayDumperOpt = None)
 
       // We are going to estimate the growth by looking at the estimated size the output could
       // be compared to the estimated size of the input (both based off of the schemas).
@@ -1844,13 +1846,11 @@ case class GpuHashAggregateExec(
       val postBoundReferences = GpuAggFinalPassIterator.setupReferences(groupingExprs,
         aggregateExprs, aggregateAttrs, resultExprs, modeInfo)
 
-      aggMetrics.opTime.value
-
       new DynamicGpuPartialSortAggregateIterator(cbIter, inputAttrs, groupingExprs,
         boundGroupExprs, aggregateExprs, aggregateAttrs, resultExprs, modeInfo,
         localEstimatedPreProcessGrowth, alreadySorted, expectedOrdering,
         postBoundReferences, targetBatchSize, aggMetrics, useTieredProject,
-        localForcePre, localAllowPre)
+        localForcePre, localAllowPre, replayDumperOpt)
     }
   }
 
@@ -1966,7 +1966,8 @@ class DynamicGpuPartialSortAggregateIterator(
     metrics: GpuHashAggregateMetrics,
     useTiered: Boolean,
     forceSinglePassAgg: Boolean,
-    allowSinglePassAgg: Boolean) extends Iterator[ColumnarBatch] {
+    allowSinglePassAgg: Boolean,
+    replayDumperOpt: Option[ReplayDumper]) extends Iterator[ColumnarBatch] {
   private var aggIter: Option[Iterator[ColumnarBatch]] = None
   private[this] val isReductionOnly = boundGroupExprs.outputTypes.isEmpty
 
@@ -2056,7 +2057,8 @@ class DynamicGpuPartialSortAggregateIterator(
       modeInfo,
       metrics,
       configuredTargetBatchSize,
-      useTiered)
+      useTiered,
+      replayDumperOpt)
 
     GpuAggFinalPassIterator.makeIter(mergeIter, postBoundReferences, metrics)
   }
@@ -2065,7 +2067,8 @@ class DynamicGpuPartialSortAggregateIterator(
     if (aggIter.isEmpty) {
       val preProcessAggHelper = new AggHelper(
         inputAttrs, groupingExprs, aggregateExprs,
-        forceMerge = false, isSorted = true, useTieredProject = useTiered)
+        forceMerge = false, isSorted = true, useTieredProject = useTiered,
+        replayDumperOpt = replayDumperOpt)
       val (inputIter, doSinglePassAgg) = if (allowSinglePassAgg) {
         if (forceSinglePassAgg || alreadySorted) {
           (cbIter, true)
