@@ -39,7 +39,7 @@ case class LoreDumpRDDInfo(idxInParent: Int, loreOutputInfo: LoreOutputInfo, att
     hadoopConf: Broadcast[SerializableConfiguration])
 
 class GpuLoreDumpRDD(info: LoreDumpRDDInfo, input: RDD[ColumnarBatch])
-  extends RDD[ColumnarBatch](input) with GpuLoreRDD {
+  extends RDD[ColumnarBatch](input) with GpuLoreRDD with Logging {
   override def rootPath: Path = pathOfChild(info.loreOutputInfo.path, info.idxInParent)
   private val factDataTypes = info.attrs.map(_.dataType)
   lazy val kudoSerializer: KudoSerializer = new KudoSerializer(
@@ -86,6 +86,7 @@ class GpuLoreDumpRDD(info: LoreDumpRDDInfo, input: RDD[ColumnarBatch])
 
         private def dumpCurrentBatch(): ColumnarBatch = {
           val outputPath = pathOfBatch(split.index, batchIdx)
+          logInfo(s"LORE: Dumping parquet data to $outputPath")
           val outputStream = outputPath.getFileSystem(info.hadoopConf.value.value)
             .create(outputPath, true)
           DumpUtils.dumpToParquet(nextBatch.get, outputStream, Some(kudoSerializer))

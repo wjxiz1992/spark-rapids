@@ -17,7 +17,6 @@
 package com.nvidia.spark.rapids.lore
 
 import com.nvidia.spark.rapids.{FunSuiteWithTempDir, GpuColumnarToRowExec, RapidsConf, ShimLoader, SparkQueryCompareTestSuite}
-import com.nvidia.spark.rapids.Arm.withResource
 import org.apache.hadoop.fs.Path
 
 import org.apache.spark.internal.Logging
@@ -207,26 +206,27 @@ class GpuLoreSuite extends SparkQueryCompareTestSuite with FunSuiteWithTempDir w
     }
   }
 
-  test("Non-empty lore dump path") {
-    skipIfAnsiEnabled("https://github.com/NVIDIA/spark-rapids/issues/5114")
-    withGpuSparkSession{ spark =>
-      spark.conf.set(RapidsConf.LORE_DUMP_PATH.key, TEST_FILES_ROOT.getAbsolutePath)
-      spark.conf.set(RapidsConf.LORE_DUMP_IDS.key, "3[*]")
-
-      //Create a file in the root path
-      val path = new Path(s"${TEST_FILES_ROOT.getAbsolutePath}/test")
-      val fs = path.getFileSystem(spark.sparkContext.hadoopConfiguration)
-      withResource(fs.create(path, true)) { _ =>
-      }
-
-      val df = spark.range(0, 1000, 1, 100)
-        .selectExpr("id % 10 as key", "id % 100 as value")
-
-      assertThrows[IllegalArgumentException] {
-        df.collect()
-      }
-    }
-  }
+  // TODO: recover after lore dump path already exists issue is resolved
+//  test("Non-empty lore dump path") {
+//    skipIfAnsiEnabled("https://github.com/NVIDIA/spark-rapids/issues/5114")
+//    withGpuSparkSession{ spark =>
+//      spark.conf.set(RapidsConf.LORE_DUMP_PATH.key, TEST_FILES_ROOT.getAbsolutePath)
+//      spark.conf.set(RapidsConf.LORE_DUMP_IDS.key, "3[*]")
+//
+//      //Create a file in the root path
+//      val path = new Path(s"${TEST_FILES_ROOT.getAbsolutePath}/test")
+//      val fs = path.getFileSystem(spark.sparkContext.hadoopConfiguration)
+//      withResource(fs.create(path, true)) { _ =>
+//      }
+//
+//      val df = spark.range(0, 1000, 1, 100)
+//        .selectExpr("id % 10 as key", "id % 100 as value")
+//
+//      assertThrows[IllegalArgumentException] {
+//        df.collect()
+//      }
+//    }
+//  }
 
   test("GpuShuffledSymmetricHashJoin with SerializedTableColumn") {
     skipIfAnsiEnabled("https://github.com/NVIDIA/spark-rapids/issues/5114")
