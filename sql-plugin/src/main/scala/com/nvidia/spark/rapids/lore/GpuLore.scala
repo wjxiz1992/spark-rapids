@@ -24,7 +24,6 @@ import scala.reflect.ClassTag
 
 import com.nvidia.spark.rapids.{DatabricksShimVersion, GpuColumnarToRowExec, GpuDataWritingCommandExec, GpuExec, RapidsConf, ShimLoader, ShimVersion, SparkShimVersion}
 import com.nvidia.spark.rapids.Arm.withResource
-import com.nvidia.spark.rapids.GpuExec.TASK_METRICS_TAG
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.Path
 
@@ -35,7 +34,6 @@ import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.expressions.Attribute
 import org.apache.spark.sql.catalyst.trees.TreeNodeTag
 import org.apache.spark.sql.execution.{BaseSubqueryExec, ExecSubqueryExpression, ReusedSubqueryExec, SparkPlan, SQLExecution}
-import org.apache.spark.sql.execution.SparkPlan.{LOGICAL_PLAN_INHERITED_TAG, LOGICAL_PLAN_TAG}
 import org.apache.spark.sql.execution.adaptive.BroadcastQueryStageExec
 import org.apache.spark.sql.rapids.execution.{GpuBroadcastExchangeExec, GpuCustomShuffleReaderExec}
 import org.apache.spark.sql.rapids.shims.SparkSessionUtils
@@ -81,23 +79,13 @@ object GpuLore extends Logging {
   val LORE_DUMP_RDD_TAG: TreeNodeTag[LoreDumpRDDInfo] = new TreeNodeTag[LoreDumpRDDInfo](
     "rapids.gpu.lore.dump.rdd.info")
 
-  private def cleanUpPlanForDump(p: SparkPlan): SparkPlan = {
-    p.unsetTagValue(LOGICAL_PLAN_TAG)
-    p.unsetTagValue(LOGICAL_PLAN_INHERITED_TAG)
-    p.unsetTagValue(TASK_METRICS_TAG)
-    p
-  }
 
   def pathOfRootPlanMeta(rootPath: Path): Path = {
     new Path(rootPath, "plan.meta")
   }
 
-  def dumpPlan[T <: SparkPlan : ClassTag](plan: T, rootPath: Path): Unit = {
-    logInfo(s"LORE: Dumping plan ${plan.getClass.getSimpleName} to ${pathOfRootPlanMeta(rootPath)}")
-    val newPlan = {
-      plan.canonicalized.clone()
-      cleanUpPlanForDump(plan)
-    }
+  def dumpPlan[T <: GpuLoreSupport with SparkPlan](plan: T, rootPath: Path): Unit = {
+    val newPlan = plan.prepareForLoreSerialization()
     dumpObject(newPlan, pathOfRootPlanMeta(rootPath),
       SparkSessionUtils.sessionFromPlan(plan).sparkContext.hadoopConfiguration)
   }
