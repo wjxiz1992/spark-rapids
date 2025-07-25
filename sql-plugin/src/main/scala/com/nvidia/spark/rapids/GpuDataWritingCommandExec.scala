@@ -19,7 +19,7 @@ package com.nvidia.spark.rapids
 import java.net.URI
 
 import com.nvidia.spark.rapids.RapidsPluginImplicits._
-import com.nvidia.spark.rapids.lore.{GpuLore, GpuLoreDumpExec}
+import com.nvidia.spark.rapids.lore.{GpuLore, GpuLoreDumpExec, GpuNoopLogicalPlan}
 import com.nvidia.spark.rapids.lore.GpuLore.{loreIdOf, LORE_DUMP_PATH_TAG, LORE_DUMP_RDD_TAG}
 import com.nvidia.spark.rapids.shims.{ShimUnaryCommand, ShimUnaryExecNode}
 import org.apache.hadoop.conf.Configuration
@@ -211,7 +211,26 @@ case class GpuDataWritingCommandExec(cmd: GpuDataWritingCommand, child: SparkPla
 
   private def dumpLoreMetaInfo(): Unit = {
     getTagValue(LORE_DUMP_PATH_TAG).foreach { rootPath =>
-      GpuLore.dumpPlan(this, new Path(rootPath))
+      // Replace cmd.children with GpuNoopLogicalPlan to avoid serialization issues
+      val cmdWithReplacedChildren = replaceCmdChildrenForLoreDump()
+      // Create a temporary GpuDataWritingCommandExec with replaced children for serialization
+      val tempExec = GpuDataWritingCommandExec(cmdWithReplacedChildren, child)
+      GpuLore.dumpPlan(tempExec, new Path(rootPath))
+    }
+  }
+
+  /**
+   * Replace cmd.children with GpuNoopLogicalPlan to avoid serialization issues during LORE dump.
+   * This is similar to doReplaceInputForLoreDump but for LogicalPlan children.
+   */
+  private def replaceCmdChildrenForLoreDump(): GpuDataWritingCommand = {
+    val childrenCount = cmd.children.length
+    if (childrenCount > 0) {
+      // Create a new command with replaced children
+      val newChildren = (0 until childrenCount).map(_ => GpuNoopLogicalPlan())
+      cmd.withNewChildren(newChildren).asInstanceOf[GpuDataWritingCommand]
+    } else {
+      cmd
     }
   }
 
