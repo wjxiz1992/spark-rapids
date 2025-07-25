@@ -24,6 +24,8 @@ import org.apache.spark.sql.catalyst.plans.logical.LeafNode
  * This class is designed for use in lore dump to avoid a serialization problem.
  * Similar to GpuNoopExec but for LogicalPlan instead of SparkPlan.
  */
-case class GpuNoopLogicalPlan() extends LeafNode {
-  override def output: Seq[Attribute] = Seq.empty
+case class GpuNoopLogicalPlan(
+                             seq: Seq[Attribute]
+                             ) extends LeafNode {
+  override def output: Seq[Attribute] = seq
 } 

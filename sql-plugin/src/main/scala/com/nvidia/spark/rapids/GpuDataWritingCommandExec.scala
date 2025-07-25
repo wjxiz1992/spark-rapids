@@ -227,7 +227,7 @@ case class GpuDataWritingCommandExec(cmd: GpuDataWritingCommand, child: SparkPla
     val childrenCount = cmd.children.length
     if (childrenCount > 0) {
       // Create a new command with replaced children
-      val newChildren = (0 until childrenCount).map(_ => GpuNoopLogicalPlan())
+      val newChildren = (0 until childrenCount).map(_ => GpuNoopLogicalPlan(cmd.query.output))
       cmd.withNewChildren(newChildren).asInstanceOf[GpuDataWritingCommand]
     } else {
       cmd
