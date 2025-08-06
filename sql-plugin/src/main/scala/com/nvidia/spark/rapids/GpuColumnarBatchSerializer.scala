@@ -33,7 +33,7 @@ import com.nvidia.spark.rapids.jni.kudo.{KudoSerializer, KudoTableHeader, WriteI
 
 import org.apache.spark.TaskContext
 import org.apache.spark.serializer.{DeserializationStream, SerializationStream, Serializer, SerializerInstance}
-import org.apache.spark.sql.rapids.execution.GpuShuffleExchangeExecBase.{METRIC_DATA_SIZE, METRIC_SHUFFLE_DESER_STREAM_TIME, METRIC_SHUFFLE_READ_STREAM_TIME, METRIC_SHUFFLE_SER_COPY_BUFFER_TIME, METRIC_SHUFFLE_SER_STREAM_TIME}
+import org.apache.spark.sql.rapids.execution.GpuShuffleExchangeExecBase.{METRIC_DATA_SIZE, METRIC_SHUFFLE_DESER_STREAM_TIME, METRIC_SHUFFLE_READ_HEADER_TIME, METRIC_SHUFFLE_READ_STREAM_TIME, METRIC_SHUFFLE_SER_COPY_BUFFER_TIME, METRIC_SHUFFLE_SER_STREAM_TIME}
 import org.apache.spark.sql.types.{DataType, NullType}
 import org.apache.spark.sql.vectorized.ColumnarBatch
 
@@ -366,6 +366,7 @@ private class KudoSerializerInstance(
   private val serCopyBufferTime = metrics(METRIC_SHUFFLE_SER_COPY_BUFFER_TIME)
   private val deserTime = metrics(METRIC_SHUFFLE_DESER_STREAM_TIME)
   private val readTime = metrics(METRIC_SHUFFLE_READ_STREAM_TIME)
+  private val headerReadTime = metrics(METRIC_SHUFFLE_READ_HEADER_TIME)
 
   override def serializeStream(out: OutputStream): SerializationStream = new SerializationStream {
 
@@ -458,7 +459,7 @@ private class KudoSerializerInstance(
       private[this] val dIn: DataInputStream = new DataInputStream(new BufferedInputStream(in))
 
       override def asKeyValueIterator: Iterator[(Int, ColumnarBatch)] = {
-        new KudoSerializedBatchIterator(dIn, deserTime, readTime)
+        new KudoSerializedBatchIterator(dIn, deserTime, readTime, headerReadTime)
       }
 
       override def asIterator: Iterator[Any] = {
@@ -508,6 +509,7 @@ private class KudoGpuSerializerInstance(
   private val serTime = metrics(METRIC_SHUFFLE_SER_STREAM_TIME)
   private val deserTime = metrics(METRIC_SHUFFLE_DESER_STREAM_TIME)
   private val readTime = metrics(METRIC_SHUFFLE_READ_STREAM_TIME)
+  private val headerReadTime = metrics(METRIC_SHUFFLE_READ_HEADER_TIME)
 
   override def serializeStream(out: OutputStream): SerializationStream = new SerializationStream {
 
@@ -569,7 +571,7 @@ private class KudoGpuSerializerInstance(
       private[this] val dIn: DataInputStream = new DataInputStream(new BufferedInputStream(in))
 
       override def asKeyValueIterator: Iterator[(Int, ColumnarBatch)] = {
-        new KudoSerializedBatchIterator(dIn, deserTime, readTime)
+        new KudoSerializedBatchIterator(dIn, deserTime, readTime, headerReadTime)
       }
 
       override def asIterator: Iterator[Any] = {
@@ -651,7 +653,7 @@ object KudoSerializedTableColumn {
   }
 }
 
-class KudoSerializedBatchIterator(dIn: DataInputStream, deserTime: GpuMetric, readTime: GpuMetric)
+class KudoSerializedBatchIterator(dIn: DataInputStream, deserTime: GpuMetric, readTime: GpuMetric, headerReadTime: GpuMetric)
   extends BaseSerializedTableIterator {
   private[this] var nextHeader: Option[KudoTableHeader] = None
   private[this] var streamClosed: Boolean = false
@@ -686,7 +688,7 @@ class KudoSerializedBatchIterator(dIn: DataInputStream, deserTime: GpuMetric, re
       if (nextHeader.isEmpty) {
         withResource(new NvtxRange("Read Header", NvtxColor.YELLOW)) { _ =>
           val header = Option(
-            readTime.ns(KudoTableHeader.readFrom(dIn)).orElse(null))
+            headerReadTime.ns(KudoTableHeader.readFrom(dIn)).orElse(null))
           if (header.isDefined) {
             nextHeader = header
           } else {
