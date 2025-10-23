@@ -105,5 +105,9 @@ class RapidsTestSettings extends BackendTestSettings {
     .exclude("SPARK-22550: Elt should not generate codes beyond 64KB", WONT_FIX_ISSUE("https://github.com/NVIDIA/spark-rapids/issues/10775"))
     .exclude("SPARK-22603: FormatString should not generate codes beyond 64KB", WONT_FIX_ISSUE("https://github.com/NVIDIA/spark-rapids/issues/10775"))
   enableSuite[RapidsStringFunctionsSuite]
+  enableSuite[RapidsDateFunctionsSuite]
+    .exclude("function to_date", KNOWN_ISSUE("https://github.com/NVIDIA/spark-rapids/issues/TBD-DATE-1"))
+    .exclude("unix_timestamp", KNOWN_ISSUE("https://github.com/NVIDIA/spark-rapids/issues/TBD-DATE-2"))
+    .exclude("to_unix_timestamp", KNOWN_ISSUE("https://github.com/NVIDIA/spark-rapids/issues/TBD-DATE-3"))
 }
 // scalastyle:on line.size.limit
