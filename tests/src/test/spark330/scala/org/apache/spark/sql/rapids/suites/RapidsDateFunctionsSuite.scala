@@ -25,5 +25,3 @@ import org.apache.spark.sql.rapids.utils.RapidsSQLTestsTrait
 class RapidsDateFunctionsSuite extends DateFunctionsSuite with RapidsSQLTestsTrait {
   // Minimal inheritance - GPU verification is automatic via RapidsSQLTestsTrait!
 }
-
-
