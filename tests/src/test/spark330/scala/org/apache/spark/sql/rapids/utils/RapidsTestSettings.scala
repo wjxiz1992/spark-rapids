@@ -19,7 +19,7 @@
 spark-rapids-shim-json-lines ***/
 package org.apache.spark.sql.rapids.utils
 
-import org.apache.spark.sql.rapids.suites.{RapidsCastSuite, RapidsDataFrameAggregateSuite, RapidsJsonExpressionsSuite, RapidsJsonFunctionsSuite, RapidsJsonSuite, RapidsMathFunctionsSuite, RapidsParquetAvroCompatibilitySuite, RapidsParquetColumnIndexSuite, RapidsParquetCompressionCodecPrecedenceSuite, RapidsParquetDeltaByteArrayEncodingSuite, RapidsParquetDeltaEncodingInteger, RapidsParquetDeltaEncodingLong, RapidsParquetDeltaLengthByteArrayEncodingSuite,  RapidsParquetFieldIdIOSuite, RapidsParquetFieldIdSchemaSuite, RapidsParquetFileFormatSuite, RapidsParquetInteroperabilitySuite, RapidsParquetPartitionDiscoverySuite, RapidsParquetProtobufCompatibilitySuite, RapidsParquetQuerySuite, RapidsParquetRebaseDatetimeSuite, RapidsParquetSchemaPruningSuite, RapidsParquetSchemaSuite, RapidsParquetThriftCompatibilitySuite, RapidsParquetVectorizedSuite, RapidsRegexpExpressionsSuite, RapidsStringExpressionsSuite, RapidsStringFunctionsSuite}
+import org.apache.spark.sql.rapids.suites.{RapidsCastSuite, RapidsDataFrameAggregateSuite, RapidsJsonExpressionsSuite, RapidsJsonFunctionsSuite, RapidsJsonSuite, RapidsMathFunctionsSuite, RapidsParquetAvroCompatibilitySuite, RapidsParquetColumnIndexSuite, RapidsParquetCompressionCodecPrecedenceSuite, RapidsParquetDeltaByteArrayEncodingSuite, RapidsParquetDeltaEncodingInteger, RapidsParquetDeltaEncodingLong, RapidsParquetDeltaLengthByteArrayEncodingSuite, RapidsParquetFieldIdIOSuite, RapidsParquetFieldIdSchemaSuite, RapidsParquetFileFormatSuite, RapidsParquetInteroperabilitySuite, RapidsParquetPartitionDiscoverySuite, RapidsParquetProtobufCompatibilitySuite, RapidsParquetQuerySuite, RapidsParquetRebaseDatetimeSuite, RapidsParquetSchemaPruningSuite, RapidsParquetSchemaSuite, RapidsParquetThriftCompatibilitySuite, RapidsParquetV1FilterSuite, RapidsParquetV2FilterSuite, RapidsParquetVectorizedSuite, RapidsRegexpExpressionsSuite, RapidsStringExpressionsSuite, RapidsStringFunctionsSuite}
 
 // Some settings' line length exceeds 100
 // scalastyle:off line.size.limit
@@ -73,6 +73,34 @@ class RapidsTestSettings extends BackendTestSettings {
   enableSuite[RapidsParquetDeltaLengthByteArrayEncodingSuite]
   enableSuite[RapidsParquetFileFormatSuite]
     .excludeByPrefix("Propagate Hadoop configs from", KNOWN_ISSUE("https://github.com/NVIDIA/spark-rapids/issues/11602"))
+  enableSuite[RapidsParquetV1FilterSuite]
+    .exclude("Support Parquet column index", KNOWN_ISSUE("Parquet column index not supported"))
+    .exclude("SPARK-34562: Bloom filter push down", KNOWN_ISSUE("Bloom filter pushdown not supported"))
+    .exclude("SPARK-36866: filter pushdown - year-month interval", KNOWN_ISSUE("Year-month interval filter pushdown issue"))
+    .exclude("SPARK-36866: filter pushdown - day-time interval", KNOWN_ISSUE("Day-time interval filter pushdown issue"))
+    .exclude("filter pushdown - binary", KNOWN_ISSUE("Binary filter pushdown issue"))
+    .exclude("filter pushdown - date", KNOWN_ISSUE("Date filter pushdown - LEGACY datetime rebase mode issue"))
+    .exclude("filter pushdown - timestamp", KNOWN_ISSUE("Timestamp filter pushdown issue"))
+    .exclude("Filters should be pushed down for vectorized Parquet reader at row group level", KNOWN_ISSUE("Row group level filter pushdown issue"))
+    .exclude("SPARK-31026: Parquet predicate pushdown for fields having dots in the names", KNOWN_ISSUE("Dotted field names pushdown issue"))
+    .exclude("Filters should be pushed down for Parquet readers at row group level", KNOWN_ISSUE("Row group level filter pushdown issue"))
+    .exclude("SPARK-23852: Broken Parquet push-down for partially-written stats", KNOWN_ISSUE("Partially-written stats pushdown issue"))
+    .exclude("filter pushdown - StringStartsWith", KNOWN_ISSUE("StringStartsWith filter pushdown issue"))
+    .exclude("SPARK-17091: Convert IN predicate to Parquet filter push-down", KNOWN_ISSUE("IN predicate pushdown issue"))
+  enableSuite[RapidsParquetV2FilterSuite]
+    .exclude("Support Parquet column index", KNOWN_ISSUE("Parquet column index not supported"))
+    .exclude("SPARK-34562: Bloom filter push down", KNOWN_ISSUE("Bloom filter pushdown not supported"))
+    .exclude("SPARK-36866: filter pushdown - year-month interval", KNOWN_ISSUE("Year-month interval filter pushdown issue"))
+    .exclude("SPARK-36866: filter pushdown - day-time interval", KNOWN_ISSUE("Day-time interval filter pushdown issue"))
+    .exclude("filter pushdown - binary", KNOWN_ISSUE("Binary filter pushdown issue"))
+    .exclude("filter pushdown - date", KNOWN_ISSUE("Date filter pushdown - LEGACY datetime rebase mode issue"))
+    .exclude("filter pushdown - timestamp", KNOWN_ISSUE("Timestamp filter pushdown issue"))
+    .exclude("Filters should be pushed down for vectorized Parquet reader at row group level", KNOWN_ISSUE("Row group level filter pushdown issue"))
+    .exclude("SPARK-31026: Parquet predicate pushdown for fields having dots in the names", KNOWN_ISSUE("Dotted field names pushdown issue"))
+    .exclude("Filters should be pushed down for Parquet readers at row group level", KNOWN_ISSUE("Row group level filter pushdown issue"))
+    .exclude("SPARK-23852: Broken Parquet push-down for partially-written stats", KNOWN_ISSUE("Partially-written stats pushdown issue"))
+    .exclude("filter pushdown - StringStartsWith", KNOWN_ISSUE("StringStartsWith filter pushdown issue"))
+    .exclude("SPARK-17091: Convert IN predicate to Parquet filter push-down", KNOWN_ISSUE("IN predicate pushdown issue"))
   enableSuite[RapidsParquetFieldIdIOSuite]
   enableSuite[RapidsParquetFieldIdSchemaSuite]
   enableSuite[RapidsParquetInteroperabilitySuite]
