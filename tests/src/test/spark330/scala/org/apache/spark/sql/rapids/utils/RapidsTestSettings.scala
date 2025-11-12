@@ -19,7 +19,7 @@
 spark-rapids-shim-json-lines ***/
 package org.apache.spark.sql.rapids.utils
 
-import org.apache.spark.sql.rapids.suites.{RapidsCastSuite, RapidsDataFrameAggregateSuite, RapidsJsonExpressionsSuite, RapidsJsonFunctionsSuite, RapidsJsonSuite, RapidsMathExpressionsSuite, RapidsMathFunctionsSuite, RapidsMiscFunctionsSuite, RapidsParquetAvroCompatibilitySuite, RapidsParquetColumnIndexSuite, RapidsParquetCompressionCodecPrecedenceSuite, RapidsParquetDeltaByteArrayEncodingSuite, RapidsParquetDeltaEncodingInteger, RapidsParquetDeltaEncodingLong, RapidsParquetDeltaLengthByteArrayEncodingSuite,  RapidsParquetFieldIdIOSuite, RapidsParquetFieldIdSchemaSuite, RapidsParquetFileFormatSuite, RapidsParquetInteroperabilitySuite, RapidsParquetPartitionDiscoverySuite, RapidsParquetProtobufCompatibilitySuite, RapidsParquetQuerySuite, RapidsParquetRebaseDatetimeSuite, RapidsParquetSchemaPruningSuite, RapidsParquetSchemaSuite, RapidsParquetThriftCompatibilitySuite, RapidsParquetVectorizedSuite, RapidsRegexpExpressionsSuite, RapidsStringExpressionsSuite, RapidsStringFunctionsSuite}
+import org.apache.spark.sql.rapids.suites.{RapidsCastSuite, RapidsDataFrameAggregateSuite, RapidsJsonExpressionsSuite, RapidsJsonFunctionsSuite, RapidsJsonSuite, RapidsMathExpressionsSuite, RapidsMathFunctionsSuite, RapidsMiscFunctionsSuite, RapidsParquetAvroCompatibilitySuite, RapidsParquetColumnIndexSuite, RapidsParquetCompressionCodecPrecedenceSuite, RapidsParquetDeltaByteArrayEncodingSuite, RapidsParquetDeltaEncodingInteger, RapidsParquetDeltaEncodingLong, RapidsParquetDeltaLengthByteArrayEncodingSuite, RapidsParquetFieldIdIOSuite, RapidsParquetFieldIdSchemaSuite, RapidsParquetFileFormatSuite, RapidsParquetInteroperabilitySuite, RapidsParquetIOSuite, RapidsParquetPartitionDiscoverySuite, RapidsParquetProtobufCompatibilitySuite, RapidsParquetQuerySuite, RapidsParquetRebaseDatetimeSuite, RapidsParquetSchemaPruningSuite, RapidsParquetSchemaSuite, RapidsParquetThriftCompatibilitySuite, RapidsParquetVectorizedSuite, RapidsRegexpExpressionsSuite, RapidsStringExpressionsSuite, RapidsStringFunctionsSuite}
 
 // Some settings' line length exceeds 100
 // scalastyle:off line.size.limit
@@ -85,6 +85,15 @@ class RapidsTestSettings extends BackendTestSettings {
   enableSuite[RapidsParquetInteroperabilitySuite]
     .exclude("SPARK-36803: parquet files with legacy mode and schema evolution", KNOWN_ISSUE("https://github.com/NVIDIA/spark-rapids/issues/11454"))
     .exclude("parquet timestamp conversion", ADJUST_UT("impala_timestamp cannot be found"))
+  enableSuite[RapidsParquetIOSuite]
+    .exclude("vectorized reader: missing all struct fields", KNOWN_ISSUE("Missing struct fields vectorized reader issue"))
+    .exclude("compression codec", KNOWN_ISSUE("Compression codec issue"))
+    .exclude("SPARK-35640: int as long should throw schema incompatible error", KNOWN_ISSUE("Schema incompatibility error handling issue"))
+    .exclude("SPARK-11044 Parquet writer version fixed as version1 ", KNOWN_ISSUE("Parquet writer version issue"))
+    .exclude("read dictionary encoded decimals written as INT32", KNOWN_ISSUE("Dictionary encoded decimal INT32 issue"))
+    .exclude("read dictionary encoded decimals written as INT64", KNOWN_ISSUE("Dictionary encoded decimal INT64 issue"))
+    .exclude("read dictionary encoded decimals written as FIXED_LEN_BYTE_ARRAY", KNOWN_ISSUE("Dictionary encoded decimal FIXED_LEN_BYTE_ARRAY issue"))
+    .exclude("read dictionary and plain encoded timestamp_millis written as INT64", KNOWN_ISSUE("Timestamp millis INT64 encoding issue"))
   enableSuite[RapidsParquetPartitionDiscoverySuite]
     .exclude("Various partition value types", KNOWN_ISSUE("https://github.com/NVIDIA/spark-rapids/issues/11583"))
   enableSuite[RapidsParquetProtobufCompatibilitySuite]
