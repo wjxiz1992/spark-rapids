@@ -19,7 +19,7 @@
 spark-rapids-shim-json-lines ***/
 package org.apache.spark.sql.rapids.utils
 
-import org.apache.spark.sql.rapids.suites.{RapidsCastSuite, RapidsDataFrameAggregateSuite, RapidsJsonExpressionsSuite, RapidsJsonFunctionsSuite, RapidsJsonSuite, RapidsMathExpressionsSuite, RapidsMathFunctionsSuite, RapidsMiscFunctionsSuite, RapidsParquetAvroCompatibilitySuite, RapidsParquetColumnIndexSuite, RapidsParquetCompressionCodecPrecedenceSuite, RapidsParquetDeltaByteArrayEncodingSuite, RapidsParquetDeltaEncodingInteger, RapidsParquetDeltaEncodingLong, RapidsParquetDeltaLengthByteArrayEncodingSuite,  RapidsParquetFieldIdIOSuite, RapidsParquetFieldIdSchemaSuite, RapidsParquetFileFormatSuite, RapidsParquetInteroperabilitySuite, RapidsParquetPartitionDiscoverySuite, RapidsParquetProtobufCompatibilitySuite, RapidsParquetQuerySuite, RapidsParquetRebaseDatetimeSuite, RapidsParquetSchemaPruningSuite, RapidsParquetSchemaSuite, RapidsParquetThriftCompatibilitySuite, RapidsParquetVectorizedSuite, RapidsRegexpExpressionsSuite, RapidsStringExpressionsSuite, RapidsStringFunctionsSuite}
+import org.apache.spark.sql.rapids.suites.{RapidsCastSuite, RapidsDataFrameAggregateSuite, RapidsJsonExpressionsSuite, RapidsJsonFunctionsSuite, RapidsJsonSuite, RapidsMathExpressionsSuite, RapidsMathFunctionsSuite, RapidsMiscFunctionsSuite, RapidsParquetAvroCompatibilitySuite, RapidsParquetColumnIndexSuite, RapidsParquetCommitterSuite, RapidsParquetCompressionCodecPrecedenceSuite, RapidsParquetDeltaByteArrayEncodingSuite, RapidsParquetDeltaEncodingInteger, RapidsParquetDeltaEncodingLong, RapidsParquetDeltaLengthByteArrayEncodingSuite, RapidsParquetFieldIdIOSuite, RapidsParquetFieldIdSchemaSuite, RapidsParquetFileFormatSuite, RapidsParquetInteroperabilitySuite, RapidsParquetPartitionDiscoverySuite, RapidsParquetProtobufCompatibilitySuite, RapidsParquetQuerySuite, RapidsParquetRebaseDatetimeSuite, RapidsParquetSchemaPruningSuite, RapidsParquetSchemaSuite, RapidsParquetThriftCompatibilitySuite, RapidsParquetVectorizedSuite, RapidsRegexpExpressionsSuite, RapidsStringExpressionsSuite, RapidsStringFunctionsSuite}
 
 // Some settings' line length exceeds 100
 // scalastyle:off line.size.limit
@@ -72,6 +72,11 @@ class RapidsTestSettings extends BackendTestSettings {
   enableSuite[RapidsParquetAvroCompatibilitySuite]
     .exclude("SPARK-10136 array of primitive array", KNOWN_ISSUE("https://github.com/NVIDIA/spark-rapids/issues/11592"))
   enableSuite[RapidsParquetColumnIndexSuite]
+  enableSuite[RapidsParquetCommitterSuite]
+    .exclude("alternative output committer, merge schema", WONT_FIX_ISSUE("Requires local-cluster mode and spark.test.home"))
+    .exclude("alternative output committer, no merge schema", WONT_FIX_ISSUE("Requires local-cluster mode and spark.test.home"))
+    .exclude("Parquet output committer, merge schema", WONT_FIX_ISSUE("Requires local-cluster mode and spark.test.home"))
+    .exclude("Parquet output committer, no merge schema", WONT_FIX_ISSUE("Requires local-cluster mode and spark.test.home"))
   enableSuite[RapidsParquetCompressionCodecPrecedenceSuite]
     .exclude("Create parquet table with compression", KNOWN_ISSUE("https://github.com/NVIDIA/spark-rapids/issues/11416"))
   enableSuite[RapidsParquetDeltaByteArrayEncodingSuite]
