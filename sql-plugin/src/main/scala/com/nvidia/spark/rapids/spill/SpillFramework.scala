@@ -1251,7 +1251,7 @@ class DiskHandle private(
   def materializeToHostMemoryBuffer(mb: HostMemoryBuffer): Unit = {
     withInputWrappedStream { in =>
       withResource(new HostMemoryOutputStream(mb)) { out =>
-        val len = IOUtils.copy(in, out)
+        val len = in.transferTo(out)
         if (len != mb.getLength) {
           throw new IllegalStateException(
             s"Expected to read ${mb.getLength} bytes, but got $len bytes from disk")

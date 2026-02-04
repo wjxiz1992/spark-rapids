@@ -41,7 +41,6 @@ import com.nvidia.spark.rapids.filecache.FileCache
 import com.nvidia.spark.rapids.io.async._
 import com.nvidia.spark.rapids.jni.{CastStrings, RmmSpark}
 import com.nvidia.spark.rapids.shims.{ColumnDefaultValuesShims, GpuOrcDataReader, NullOutputStreamShim, OrcCastingShims, OrcReadingShims, OrcShims, ShimFilePartitionReaderFactory}
-import org.apache.commons.io.IOUtils
 import org.apache.commons.io.output.CountingOutputStream
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.{FileSystem, FSDataInputStream, Path}
@@ -2374,7 +2373,7 @@ class MultiFileCloudOrcPartitionReader(
               // realloc memory and copy
               closeOnExcept(HostMemoryBuffer.allocate(newBufferSize)) { newhmb =>
                 withResource(new HostMemoryOutputStream(newhmb)) { out =>
-                  IOUtils.copy(in, out)
+                  in.transferTo(out)
                 }
                 newhmb
               }

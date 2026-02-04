@@ -25,7 +25,6 @@ import ai.rapids.cudf._
 import ai.rapids.cudf.ColumnWriterOptions._
 import com.nvidia.spark.rapids.Arm.{closeOnExcept, withResource}
 import com.nvidia.spark.rapids.jni.kudo.KudoSerializer
-import org.apache.commons.io.IOUtils
 import org.apache.hadoop.conf.Configuration
 
 import org.apache.spark.internal.Logging
@@ -55,7 +54,7 @@ object DumpUtils extends Logging {
       withResource(out) { _ =>
         withResource(data.slice(offset, len)) { hmb =>
           withResource(new HostMemoryInputStream(hmb, hmb.getLength)) { in =>
-            IOUtils.copy(in, out)
+            in.transferTo(out)
           }
         }
       }
@@ -77,7 +76,7 @@ object DumpUtils extends Logging {
       withResource(out) { _ =>
         data.foreach { hmb =>
           withResource(new HostMemoryInputStream(hmb, hmb.getLength)) { in =>
-            IOUtils.copy(in, out)
+            in.transferTo(out)
           }
         }
       }

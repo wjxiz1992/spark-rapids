@@ -19,7 +19,6 @@ package com.nvidia.spark.rapids.lore
 import ai.rapids.cudf.Table
 import com.nvidia.spark.rapids.{GpuColumnVector, GpuExec}
 import com.nvidia.spark.rapids.Arm.withResource
-import org.apache.commons.io.IOUtils
 import org.apache.hadoop.fs.Path
 
 import org.apache.spark.{Partition, SparkContext, TaskContext}
@@ -79,7 +78,7 @@ class GpuLoreReplayRDD(sc: SparkContext, rootPathStr: String,
                 throw new IllegalStateException(s"Batch file $batchPath does not exist")
               }
               withResource(fs.open(batchPath)) { fin =>
-                val buffer = IOUtils.toByteArray(fin)
+                val buffer = fin.readAllBytes()
                 withResource(Table.readParquet(buffer)) { restoredTable =>
                   GpuColumnVector.from(restoredTable, partitionMeta.dataType.toArray)
                 }

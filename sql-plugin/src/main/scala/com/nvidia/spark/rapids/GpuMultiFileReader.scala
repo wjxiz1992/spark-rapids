@@ -33,7 +33,6 @@ import com.nvidia.spark.rapids.GpuMetric._
 import com.nvidia.spark.rapids.RapidsPluginImplicits._
 import com.nvidia.spark.rapids.RmmRapidsRetryIterator.withRetryNoSplit
 import com.nvidia.spark.rapids.io.async._
-import org.apache.commons.io.IOUtils
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.{FileSystem, Path}
 
@@ -1377,7 +1376,7 @@ abstract class MultiFileCoalescingPartitionReaderBase(
             }
             closeOnExcept(newBuf) { newhmb =>
               withResource(new HostMemoryOutputStream(newhmb)) { out =>
-                IOUtils.copy(in, out)
+                in.transferTo(out)
               }
               newhmb
             }

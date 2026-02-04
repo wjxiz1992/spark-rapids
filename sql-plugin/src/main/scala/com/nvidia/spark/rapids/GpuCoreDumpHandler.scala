@@ -22,7 +22,6 @@ import java.util.concurrent.{Executors, ExecutorService, TimeUnit}
 
 import com.nvidia.spark.rapids.Arm.{closeOnExcept, withResource}
 import com.nvidia.spark.rapids.shims.NullOutputStreamShim
-import org.apache.commons.io.IOUtils
 import org.apache.commons.io.output.StringBuilderWriter
 import org.apache.hadoop.fs.Path
 import org.apache.hadoop.fs.permission.{FsAction, FsPermission}
@@ -172,7 +171,7 @@ object GpuCoreDumpHandler extends Logging {
           codec.map(_.compressedOutputStream(fsOut)).getOrElse(fsOut)
         }
         withResource(out) { _ =>
-          IOUtils.copy(in, out)
+          in.transferTo(out)
         }
         dumpedPath = Some(dumpPath.toString)
         pluginCtx.send(GpuCoreDumpMsgCompleted(executorId, dumpedPath.get))
