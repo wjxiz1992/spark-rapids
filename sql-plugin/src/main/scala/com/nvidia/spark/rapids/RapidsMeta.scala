@@ -368,7 +368,7 @@ abstract class RapidsMeta[INPUT <: BASE, BASE, OUTPUT <: BASE](
   def tagSelfForGpu(): Unit
 
   protected def indent(append: StringBuilder, depth: Int): Unit =
-    append.append("  " * depth)
+    append.append("  ".repeat(depth))
 
   def replaceMessage: String = "run on GPU"
   def noReplacementPossibleMessage(reasons: String): String = s"cannot run on GPU because $reasons"

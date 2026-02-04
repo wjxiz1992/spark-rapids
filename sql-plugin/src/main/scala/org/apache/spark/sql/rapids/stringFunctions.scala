@@ -2329,7 +2329,7 @@ case class GpuFormatNumber(x: Expression, d: Expression)
       }
       resourceArray += intPartPos
       // append zeros
-      val appendZeros = "0" * appendZeroNum
+      val appendZeros = "0".repeat(appendZeroNum)
       val appendZerosCv = closeOnExcept(decTemp) { _ =>
         withResource(Scalar.fromString(appendZeros)) { zeroString =>
           ColumnVector.fromScalar(zeroString, cv.getRowCount.toInt)
@@ -2355,7 +2355,7 @@ case class GpuFormatNumber(x: Expression, d: Expression)
           removeNegSign(intPart)
         }
         // dec part is all zeros
-        val dzeros = "0" * d
+        val dzeros = "0".repeat(d)
         val decPart = closeOnExcept(intPartPos) { _ =>
           withResource(Scalar.fromString(dzeros)) { zeroString =>
             ColumnVector.fromScalar(zeroString, cv.getRowCount.toInt)
