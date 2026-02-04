@@ -356,6 +356,17 @@ case class GpuArrowEvalPythonExec(
     child: SparkPlan,
     evalType: Int) extends ShimUnaryExecNode with GpuPythonExecBase {
 
+  // Validate evalType to match Spark's defensive programming (SPARK-53243)
+  private val supportedPythonEvalTypes: Set[Int] = Set(
+    PythonEvalType.SQL_ARROW_BATCHED_UDF,
+    PythonEvalType.SQL_SCALAR_ARROW_UDF,
+    PythonEvalType.SQL_SCALAR_ARROW_ITER_UDF,
+    PythonEvalType.SQL_SCALAR_PANDAS_UDF,
+    PythonEvalType.SQL_SCALAR_PANDAS_ITER_UDF
+  )
+  require(supportedPythonEvalTypes.contains(evalType),
+    s"Unexpected eval type $evalType for GpuArrowEvalPythonExec")
+
   // We split the input batch up into small pieces when sending to python for compatibility reasons
   override def coalesceAfter: Boolean = true
 
