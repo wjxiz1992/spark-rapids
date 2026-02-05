@@ -20,7 +20,7 @@ import ai.rapids.cudf.{ColumnVector, ColumnView, DType}
 import com.nvidia.spark.rapids.{GpuColumnVector, GpuExpression, GpuExpressionsUtils, GpuMapUtils}
 import com.nvidia.spark.rapids.Arm.withResource
 import com.nvidia.spark.rapids.RapidsPluginImplicits.{AutoCloseableProducingSeq, ReallyAGpuExpression}
-import com.nvidia.spark.rapids.shims.ShimExpression
+import com.nvidia.spark.rapids.shims.{GpuChildDependentContextIndependentFoldable, ShimExpression}
 
 import org.apache.spark.sql.catalyst.analysis.{TypeCheckResult, TypeCoercion}
 import org.apache.spark.sql.catalyst.analysis.FunctionRegistry.FUNC_ALIAS
@@ -31,7 +31,8 @@ import org.apache.spark.sql.types.{ArrayType, DataType, MapType, Metadata, NullT
 import org.apache.spark.sql.vectorized.ColumnarBatch
 
 case class GpuCreateArray(children: Seq[Expression], useStringTypeWhenEmpty: Boolean)
-    extends GpuExpression with ShimExpression {
+    extends GpuExpression with ShimExpression
+    with GpuChildDependentContextIndependentFoldable {
 
   def this(children: Seq[Expression]) = {
     this(children, SQLConf.get.getConf(SQLConf.LEGACY_CREATE_EMPTY_COLLECTION_USING_STRING_TYPE))
@@ -84,7 +85,8 @@ case class GpuCreateArray(children: Seq[Expression], useStringTypeWhenEmpty: Boo
 case class GpuCreateMap(
       children: Seq[Expression],
       useStringTypeWhenEmpty: Boolean)
-    extends GpuExpression with ShimExpression {
+    extends GpuExpression with ShimExpression
+    with GpuChildDependentContextIndependentFoldable {
 
   private val valueIndices: Seq[Int] = children.indices.filter(_ % 2 != 0)
   private val keyIndices: Seq[Int] = children.indices.filter(_ % 2 == 0)
@@ -164,7 +166,7 @@ object GpuCreateMap {
 }
 
 case class GpuCreateNamedStruct(children: Seq[Expression]) extends GpuExpression
-  with ShimExpression {
+  with ShimExpression with GpuChildDependentContextIndependentFoldable {
   lazy val (nameExprs, valExprs) = children.grouped(2).map {
     case Seq(name, value) => (name, value)
   }.toList.unzip
