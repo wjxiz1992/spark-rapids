@@ -36,7 +36,7 @@ import org.apache.spark.api.python._
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.execution.SparkPlan
-import org.apache.spark.sql.rapids.execution.python.shims.{GpuArrowPythonRunner, PythonArgumentUtils}
+import org.apache.spark.sql.rapids.execution.python.shims.{ArrowEvalPythonExecShims, GpuArrowPythonRunner, PythonArgumentUtils}
 import org.apache.spark.sql.rapids.shims.{ArrowUtilsShim, DataTypeUtilsShim}
 import org.apache.spark.sql.types._
 import org.apache.spark.sql.vectorized.ColumnarBatch
@@ -355,6 +355,11 @@ case class GpuArrowEvalPythonExec(
     resultAttrs: Seq[Attribute],
     child: SparkPlan,
     evalType: Int) extends ShimUnaryExecNode with GpuPythonExecBase {
+
+  // Validate evalType matches what Spark's ArrowEvalPythonExec supports (SPARK-53243)
+  require(ArrowEvalPythonExecShims.supportedEvalTypes.contains(evalType),
+    s"Unexpected eval type $evalType for GpuArrowEvalPythonExec. " +
+      s"Supported types: ${ArrowEvalPythonExecShims.supportedEvalTypes.mkString(", ")}")
 
   // We split the input batch up into small pieces when sending to python for compatibility reasons
   override def coalesceAfter: Boolean = true
