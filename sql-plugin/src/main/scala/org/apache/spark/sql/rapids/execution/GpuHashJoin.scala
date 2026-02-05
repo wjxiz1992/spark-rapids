@@ -2437,10 +2437,12 @@ trait GpuHashJoin extends GpuJoinExec {
   }
 
   protected lazy val (buildKeys, streamedKeys) = {
+    // Use equalsStructurally instead of sameType to allow struct types with different field names
+    // but same structure (SPARK-51738 followup)
     require(leftKeys.length == rightKeys.length &&
         leftKeys.map(_.dataType)
             .zip(rightKeys.map(_.dataType))
-            .forall(types => types._1.sameType(types._2)),
+            .forall(types => DataType.equalsStructurally(types._1, types._2, ignoreNullability = true)),
       "Join keys from two sides should have same length and types")
     buildSide match {
       case GpuBuildLeft => (leftKeys, rightKeys)
