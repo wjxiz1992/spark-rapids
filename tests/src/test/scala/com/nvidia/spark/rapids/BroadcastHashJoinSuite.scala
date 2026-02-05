@@ -71,4 +71,29 @@ class BroadcastHashJoinSuite extends SparkQueryCompareTestSuite {
       }
     })
   }
+
+  // Test for SPARK-51738 followup: GpuHashJoin should use DataType.equalsStructurally
+  // instead of sameType to allow struct types with different field names but same structure.
+  // This test verifies the equalsStructurally behavior that enables the SPARK-51738 feature.
+  test("equalsStructurally allows struct types with different field names") {
+    import org.apache.spark.sql.types._
+    import org.apache.spark.sql.rapids.execution.TrampolineUtil
+
+    // Create two struct types with same structure but different field names
+    val structA = StructType(Seq(StructField("a", IntegerType, nullable = false)))
+    val structB = StructType(Seq(StructField("b", IntegerType, nullable = false)))
+
+    // TrampolineUtil.sameType returns false because field names differ
+    assert(!TrampolineUtil.sameType(structA, structB),
+      "sameType should return false for structs with different field names")
+
+    // equalsStructurally returns true because structure is the same
+    assert(DataType.equalsStructurally(structA, structB, ignoreNullability = true),
+      "equalsStructurally should return true for structurally equivalent types")
+
+    // Also test with nullability differences
+    val structANullable = StructType(Seq(StructField("a", IntegerType, nullable = true)))
+    assert(DataType.equalsStructurally(structA, structANullable, ignoreNullability = true),
+      "equalsStructurally should ignore nullability differences when ignoreNullability=true")
+  }
 }
