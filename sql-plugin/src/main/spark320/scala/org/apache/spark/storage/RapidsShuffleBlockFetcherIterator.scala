@@ -53,7 +53,7 @@ package org.apache.spark.storage
 
 import java.io.{InputStream, IOException}
 import java.nio.channels.ClosedByInterruptException
-import java.util.concurrent.{LinkedBlockingQueue, TimeUnit}
+import java.util.concurrent.{LinkedBlockingDeque, TimeUnit}
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.zip.CheckedInputStream
 import javax.annotation.concurrent.GuardedBy
@@ -179,7 +179,7 @@ final class RapidsShuffleBlockFetcherIterator(
    * A queue to hold our results. This turns the asynchronous model provided by
    * [[org.apache.spark.network.BlockTransferService]] into a synchronous model (iterator).
    */
-  private[this] val results = new LinkedBlockingQueue[FetchResult]
+  private[this] val results = new LinkedBlockingDeque[FetchResult]()
 
   /**
    * Queue of fetch requests to issue; we'll pull requests off this gradually to make sure that
@@ -380,7 +380,7 @@ final class RapidsShuffleBlockFetcherIterator(
                 results.put(FallbackOnPushMergedFailureResult(
                   block, address, infoMap(blockId)._1, remainingBlocks.isEmpty))
               } else {
-                results.put(FailureFetchResult(block, infoMap(blockId)._2, address, e))
+                results.putFirst(FailureFetchResult(block, infoMap(blockId)._2, address, e))
               }
           }
         }
@@ -618,7 +618,7 @@ final class RapidsShuffleBlockFetcherIterator(
               logError("Error occurred while fetching local blocks, " + ce.getMessage)
             case ex: Exception => logError("Error occurred while fetching local blocks", ex)
           }
-          results.put(new FailureFetchResult(blockId, mapIndex, blockManager.blockManagerId, e))
+          results.putFirst(new FailureFetchResult(blockId, mapIndex, blockManager.blockManagerId, e))
           return
       }
     }
@@ -639,7 +639,7 @@ final class RapidsShuffleBlockFetcherIterator(
       case e: Exception =>
         // If we see an exception, stop immediately.
         logError(s"Error occurred while fetching local blocks", e)
-        results.put(FailureFetchResult(blockId, mapIndex, blockManagerId, e))
+        results.putFirst(FailureFetchResult(blockId, mapIndex, blockManagerId, e))
         false
     }
   }
@@ -692,7 +692,7 @@ final class RapidsShuffleBlockFetcherIterator(
             val bmId = bmIds.head
             val blockInfoSeq = hostLocalBlocksWithMissingDirs(bmId)
             val (blockId, _, mapIndex) = blockInfoSeq.head
-            results.put(FailureFetchResult(blockId, mapIndex, bmId, throwable))
+            results.putFirst(FailureFetchResult(blockId, mapIndex, bmId, throwable))
         }
       }
     }
