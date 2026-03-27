@@ -21,7 +21,7 @@ import scala.collection.mutable
 import ai.rapids.cudf.{ast, ColumnVector, ColumnView, DType, Scalar}
 import com.nvidia.spark.rapids.Arm.withResource
 import com.nvidia.spark.rapids.RapidsPluginImplicits._
-import com.nvidia.spark.rapids.shims.ShimExpression
+import com.nvidia.spark.rapids.shims.{GpuChildDependentContextIndependentFoldable, ShimExpression}
 
 import org.apache.spark.sql.catalyst.expressions.{ComplexTypeMergingExpression, Expression, Predicate}
 import org.apache.spark.sql.types.{DataType, DoubleType, FloatType}
@@ -42,7 +42,8 @@ object GpuNvl {
 }
 
 case class GpuCoalesce(children: Seq[Expression]) extends GpuExpression
-    with ShimExpression with ComplexTypeMergingExpression {
+    with ShimExpression with ComplexTypeMergingExpression
+    with GpuChildDependentContextIndependentFoldable {
 
   override def columnarEval(batch: ColumnarBatch): GpuColumnVector = {
     // runningResult has precedence over runningScalar
@@ -181,7 +182,7 @@ case class GpuAtLeastNNonNulls(
     n: Int,
     exprs: Seq[Expression])
   extends GpuExpression with ShimExpression
-  with Predicate {
+  with Predicate with GpuChildDependentContextIndependentFoldable {
   override def nullable: Boolean = false
   override def foldable: Boolean = exprs.forall(_.foldable)
   override def toString: String = s"GpuAtLeastNNulls(n, ${children.mkString(",")})"

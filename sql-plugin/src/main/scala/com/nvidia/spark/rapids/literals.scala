@@ -29,7 +29,7 @@ import ai.rapids.cudf.{ColumnVector, DType, HostColumnVector, Scalar}
 import ai.rapids.cudf.ast
 import com.nvidia.spark.rapids.Arm.withResource
 import com.nvidia.spark.rapids.RapidsPluginImplicits.AutoCloseableProducingArray
-import com.nvidia.spark.rapids.shims.{GpuTypeShims, SparkShimImpl}
+import com.nvidia.spark.rapids.shims.{GpuAlwaysContextIndependentFoldable, GpuTypeShims, SparkShimImpl}
 import org.apache.commons.codec.binary.{Hex => ApacheHex}
 import org.json4s.JsonAST.{JField, JNull, JString}
 
@@ -643,7 +643,8 @@ object GpuLiteral {
 /**
  * In order to do type conversion and checking, use GpuLiteral.create() instead of constructor.
  */
-case class GpuLiteral (value: Any, dataType: DataType) extends GpuLeafExpression {
+case class GpuLiteral (value: Any, dataType: DataType) extends GpuLeafExpression
+    with GpuAlwaysContextIndependentFoldable {
 
   // Assume this came from Spark Literal and no need to call Literal.validateLiteralValue here.
 
