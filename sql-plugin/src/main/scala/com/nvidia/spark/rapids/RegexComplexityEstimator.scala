@@ -38,7 +38,7 @@ object RegexComplexityEstimator {
     requireNonNegative("right", right)
     if (left == 0L || right == 0L) {
       0L
-    } else if (left > Long.MaxValue / right) {
+    } else if (left >= Long.MaxValue / right) {
       Long.MaxValue
     } else {
       left * right
