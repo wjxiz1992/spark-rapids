@@ -21,6 +21,8 @@ import scala.collection.mutable.ListBuffer
 
 import org.scalatest.funsuite.AnyFunSuite
 
+// Java replacement strings such as ${1} are intentionally not Scala interpolated strings.
+@scala.annotation.nowarn("cat=lint-missing-interpolator")
 class RegularExpressionParserSuite extends AnyFunSuite {
 
   test("detect regexp strings") {
@@ -302,7 +304,7 @@ class RegularExpressionParserSuite extends AnyFunSuite {
 
   test("trailing \\ in replacement throws") {
     val ex = intercept[RegexUnsupportedException] {
-      new RegexParser("abc\\").parseReplacement(numCaptureGroups = 0)
+      new RegexParser("""abc\""").parseReplacement(numCaptureGroups = 0)
     }
     assert(ex.getMessage.contains("character to be escaped is missing"))
   }
@@ -323,14 +325,14 @@ class RegularExpressionParserSuite extends AnyFunSuite {
 
   test("dollar-brace-digit-brace throws") {
     val ex = intercept[RegexUnsupportedException] {
-      new RegexParser("$" + "{1}").parseReplacement(numCaptureGroups = 1)
+      new RegexParser("""${1}""").parseReplacement(numCaptureGroups = 1)
     }
     assert(ex.getMessage.contains("Illegal group reference"))
     assert(ex.getMessage.contains("digit"))
   }
 
   test("non-ASCII Unicode digit in braced group reference triggers GPU fallback") {
-    for (rep <- Seq("$" + "{١}", "$" + "{१}", "$" + "{۱}")) {
+    for (rep <- Seq("""${١}""", """${१}""", """${۱}""")) {
       val e = intercept[RegexUnsupportedException] {
         new RegexParser(rep).parseReplacement(numCaptureGroups = 4)
       }
@@ -341,21 +343,21 @@ class RegularExpressionParserSuite extends AnyFunSuite {
 
   test("dollar-brace-name-brace for named group is not supported on GPU") {
     val ex = intercept[RegexUnsupportedException] {
-      new RegexParser("$" + "{name}").parseReplacement(numCaptureGroups = 1)
+      new RegexParser("""${name}""").parseReplacement(numCaptureGroups = 1)
     }
     assert(ex.getMessage.contains("Named-group reference"))
   }
 
   test("dollar-brace-name with missing closing brace throws") {
     val ex = intercept[RegexUnsupportedException] {
-      new RegexParser("$" + "{name").parseReplacement(numCaptureGroups = 0)
+      new RegexParser("""${name""").parseReplacement(numCaptureGroups = 0)
     }
     assert(ex.getMessage.contains("Illegal group reference"))
   }
 
   test("dollar-brace with empty body throws") {
     val ex = intercept[RegexUnsupportedException] {
-      new RegexParser("$" + "{}").parseReplacement(numCaptureGroups = 0)
+      new RegexParser("""${}""").parseReplacement(numCaptureGroups = 0)
     }
     assert(ex.getMessage.contains("Illegal group reference"))
   }
