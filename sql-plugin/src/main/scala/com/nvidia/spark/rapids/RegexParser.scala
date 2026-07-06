@@ -989,7 +989,7 @@ class CudfRegexTranspiler(mode: RegexMode) {
           throw new RegexUnsupportedException(
             s"End of line/string anchor is not supported in this context: " +
               s"${toReadableString(prefix)}${toReadableString(part.toRegexString)}",
-            parts.headOption.flatMap(_.position))
+            part.position)
         }
 
         prefixContainsEmpty = prefixContainsEmpty || containsEmpty(part)
@@ -1000,7 +1000,7 @@ class CudfRegexTranspiler(mode: RegexMode) {
     def checkUnsupported(regex: RegexAST): Unit = {
       regex match {
         case RegexSequence(parts) if mode == RegexSplitMode =>
-          checkEndAnchorContextSplit(parts)
+          checkEndAnchorContextSplit(parts.toSeq)
         case RegexSequence(parts) =>
           for (i <- 1 until parts.length) {
             checkEndAnchorContext(parts(i - 1), parts(i))

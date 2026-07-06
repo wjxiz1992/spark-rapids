@@ -809,6 +809,12 @@ class RegularExpressionTranspilerSuite extends AnyFunSuite {
       assertUnsupported(pattern, RegexSplitMode,
         "End of line/string anchor is not supported in this context")
     }
+
+    val optionalPrefixError = intercept[RegexUnsupportedException] {
+      transpile("a?bc$", RegexSplitMode)
+    }
+    assert(optionalPrefixError.getMessage.endsWith("near index 4"),
+      s"Unexpected split anchor position: ${optionalPrefixError.getMessage}")
   }
 
   test("issue-14748: word boundaries are not literal split delimiters") {
