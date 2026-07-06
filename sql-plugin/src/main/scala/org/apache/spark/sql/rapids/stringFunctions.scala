@@ -1266,14 +1266,15 @@ object GpuRegExpUtils {
         } else {
           // A sequence represents concatenation, not a union. Fixed single-literal
           // children can be joined; alternatives require the regex engine.
-          parts.foldLeft(Option("")) {
-            case (Some(prefix), part) =>
+          parts.foldLeft(Option(new StringBuilder)) {
+            case (Some(builder), part) =>
               getChoicesFromRegex(part) match {
-                case Some(literals) if literals.size == 1 => Some(prefix + literals.head)
+                case Some(literals) if literals.size == 1 =>
+                  Some(builder.append(literals.head))
                 case _ => None
               }
             case (None, _) => None
-          }.map(Seq(_))
+          }.map(builder => Seq(builder.result()))
         }
       case _ =>
         if (GpuOverrides.isSupportedStringReplacePattern(regex.toRegexString)) {
