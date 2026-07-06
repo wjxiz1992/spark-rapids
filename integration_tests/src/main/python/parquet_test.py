@@ -855,10 +855,8 @@ def test_read_parquet_with_empty_clipped_schema(
     nested_map_data_path = spark_tmp_path + '/PARQUET_DATA_NESTED_MAP'
     with_cpu_session(
         lambda spark: spark.sql("""
-            SELECT named_struct(
-                '_1', map(1, named_struct('_1', 1, '_2', 'a'))) AS _1
-            UNION ALL SELECT cast(
-                null AS struct<_1:map<int,struct<_1:int,_2:string>>>)
+            SELECT named_struct('_1', map(1, named_struct('_1', 1, '_2', 'a'))) AS _1
+            UNION ALL SELECT cast(null AS struct<_1:map<int,struct<_1:int,_2:string>>>)
             """).write.parquet(nested_map_data_path))
     assert_gpu_and_cpu_are_equal_collect(
         lambda spark: spark.read.schema(nested_schema).parquet(nested_map_data_path),

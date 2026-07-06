@@ -509,8 +509,8 @@ protected case class GpuParquetFileFilterHandler(
   private val readUseFieldId = ParquetSchemaClipShims.useFieldId(sqlConf)
   private val ignoreMissingParquetFieldId = ParquetSchemaClipShims.ignoreMissingIds(sqlConf)
   private val returnNullStructIfAllFieldsMissing = VersionUtils.cmpSparkVersion(4, 1, 0) < 0 ||
-    sqlConf.getConfString(
-      "spark.sql.legacy.parquet.returnNullStructIfAllFieldsMissing", "false").toBoolean
+    sqlConf.getConfString("spark.sql.legacy.parquet.returnNullStructIfAllFieldsMissing",
+      "false").toBoolean
 
   private val PARQUET_ENCRYPTION_CONFS = Seq("parquet.encryption.kms.client.class",
     "parquet.encryption.kms.client.class", "parquet.crypto.factory.class")
@@ -699,12 +699,10 @@ protected case class GpuParquetFileFilterHandler(
       val footer: ParquetMetadata = try {
         val nativeFooterCanPreserveMissingStructNullability =
           returnNullStructIfAllFieldsMissing || !readDataSchema.exists { field =>
-            TrampolineUtil.dataTypeExistsRecursively(
-              field.dataType, _.isInstanceOf[StructType])
+            TrampolineUtil.dataTypeExistsRecursively(field.dataType, _.isInstanceOf[StructType])
         }
         footerReader match {
-          case ParquetFooterReaderType.NATIVE
-              if !nativeFooterCanPreserveMissingStructNullability =>
+          case ParquetFooterReaderType.NATIVE if !nativeFooterCanPreserveMissingStructNullability =>
             // The native footer clips to the requested schema before returning the physical
             // schema. Spark 4.1+ needs a non-requested leaf to preserve a missing struct's
             // validity, so retain the full physical schema through the Java footer path.
