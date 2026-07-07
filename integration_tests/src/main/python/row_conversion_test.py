@@ -173,22 +173,13 @@ def test_host_columnar_transition(spark_tmp_path, data_gen):
 # contribute 0 LC to the target class.
 def test_cudf_unsafe_row_primitive_sweep(spark_tmp_path):
     data_path = spark_tmp_path + "/cudf_unsafe_row"
-    all_gen = [
-        BooleanGen(),
-        ByteGen(),
-        ShortGen(),
-        IntegerGen(),
-        LongGen(),
-        FloatGen(no_nans=True),
-        DoubleGen(no_nans=True),
-        DecimalGen(precision=9, scale=2, nullable=True),
-        DecimalGen(precision=18, scale=2),
-        DecimalGen(precision=38, scale=18),
-        StringGen(),
-    ]
     gen_list = [(f'c{i}', gen) for i, gen in enumerate(all_gen)]
     with_cpu_session(lambda spark:
-        gen_df(spark, gen_list, length=200).write.mode("overwrite").parquet(data_path))
+        gen_df(spark, gen_list, length=200).write.mode("overwrite").parquet(data_path),
+        conf={
+            'spark.sql.parquet.datetimeRebaseModeInWrite': 'CORRECTED',
+            'spark.sql.parquet.int96RebaseModeInWrite': 'CORRECTED',
+        })
     # Pin acceleratedColumnarToRow so a future default flip or local conf
     # override cannot silently route the test through the slow CPU
     # ColumnarToRowIterator (which would still pass the equality check but
