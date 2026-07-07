@@ -1796,9 +1796,13 @@ private case class GpuOrcFileFilterHandler(
         t.getCategory match {
           case TypeDescription.Category.STRUCT =>
             val children = t.getChildren.asScala
-            val selectedIndex = children.indices.minBy(i => estimate(children(i)))
-            TypeDescription.createStruct().addField(
-              t.getFieldNames.get(selectedIndex), retain(children(selectedIndex)))
+            if (children.isEmpty) {
+              t.clone()
+            } else {
+              val selectedIndex = children.indices.minBy(i => estimate(children(i)))
+              TypeDescription.createStruct().addField(
+                t.getFieldNames.get(selectedIndex), retain(children(selectedIndex)))
+            }
           case TypeDescription.Category.LIST =>
             TypeDescription.createList(retain(t.getChildren.get(0)))
           case TypeDescription.Category.MAP =>
