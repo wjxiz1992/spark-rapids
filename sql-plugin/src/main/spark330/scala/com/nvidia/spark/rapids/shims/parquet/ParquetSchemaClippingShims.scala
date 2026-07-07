@@ -46,13 +46,12 @@
 spark-rapids-shim-json-lines ***/
 package com.nvidia.spark.rapids.shims.parquet
 
+import com.nvidia.spark.rapids.parquet.ParquetSchemaUtils
 import org.apache.hadoop.conf.Configuration
 import org.apache.parquet.schema.MessageType
 
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.StructType
-
-import com.nvidia.spark.rapids.parquet.ParquetSchemaUtils
 
 object ParquetSchemaClippingShims {
   def clipParquetSchema(
