@@ -362,7 +362,8 @@ object ParquetSchemaUtils {
   private def findCheapestGroupField(parentGroupType: GroupType): Type = {
     def recurse(curType: Type, repLevel: Int = 0): (Type, Int, Int) = curType match {
       case groupType: GroupType if groupType.getOriginalType == OriginalType.MAP ||
-              groupType.getOriginalType == OriginalType.MAP_KEY_VALUE =>
+              (groupType.getOriginalType == OriginalType.MAP_KEY_VALUE &&
+                groupType.getFieldCount == 1) =>
         assert(groupType.getFieldCount == 1 && !groupType.getType(0).isPrimitive,
           s"Invalid map type: $groupType")
         val keyValueType = groupType.getType(0).asGroupType()
@@ -372,7 +373,18 @@ object ParquetSchemaUtils {
         val valueResult = recurse(keyValueType.getType(1), repLevel + 1)
         (groupType.withNewFields(keyValueType.withNewFields(keyResult._1, valueResult._1)),
           keyResult._2.max(valueResult._2), keyResult._3 + valueResult._3)
+      case groupType: GroupType
+          if groupType.getOriginalType == OriginalType.MAP_KEY_VALUE =>
+        // Legacy two-level map encodings may annotate the repeated key/value group itself.
+        // Keep both children; retaining just the cheaper one would produce an invalid map schema.
+        assert(groupType.getFieldCount == 2, s"Invalid map key/value type: $groupType")
+        val keyResult = recurse(groupType.getType(0), repLevel)
+        val valueResult = recurse(groupType.getType(1), repLevel)
+        (groupType.withNewFields(keyResult._1, valueResult._1),
+          keyResult._2.max(valueResult._2), keyResult._3 + valueResult._3)
       case groupType: GroupType =>
+        require(groupType.getFieldCount > 0,
+          s"findCheapestGroupField called on empty group: $groupType")
         var (bestType, bestRepLevel, bestCost) = (Option.empty[Type], 0, 0)
         for (field <- groupType.getFields.asScala) {
           val newRepLevel = repLevel + (if (field.isRepetition(Repetition.REPEATED)) 1 else 0)

@@ -125,4 +125,44 @@ class ParquetSchemaUtilsSuite extends AnyFunSuite {
           |}
           |""".stripMargin)
   }
+
+  test("missing struct preserves legacy MAP_KEY_VALUE children") {
+    assertClippedSchema(
+      parquetSchema =
+        """message root {
+          |  optional group _1 {
+          |    repeated group entries (MAP_KEY_VALUE) {
+          |      required int32 key;
+          |      optional int64 value;
+          |    }
+          |  }
+          |}
+          |""".stripMargin,
+      expectedSchema =
+        """message spark_schema {
+          |  optional group _1 {
+          |    repeated group entries (MAP_KEY_VALUE) {
+          |      required int32 key;
+          |      optional int64 value;
+          |    }
+          |  }
+          |}
+          |""".stripMargin)
+  }
+
+  test("missing struct reports an empty physical group") {
+    val error = intercept[IllegalArgumentException] {
+      assertClippedSchema(
+        parquetSchema =
+          """message root {
+            |  optional group _1 {
+            |    optional group empty {
+            |    }
+            |  }
+            |}
+            |""".stripMargin,
+        expectedSchema = "message spark_schema {}")
+    }
+    assert(error.getMessage.contains("findCheapestGroupField called on empty group"))
+  }
 }

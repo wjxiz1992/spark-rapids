@@ -823,7 +823,7 @@ def test_parquet_read_merge_schema_from_conf(spark_tmp_path, v1_enabled_list, re
 missing_struct_confs = [
     {'spark.sql.legacy.parquet.returnNullStructIfAllFieldsMissing': value}
     for value in [False, True]
-] if is_spark_411_or_later() else [{}]
+] if spark_version() >= "4.1.0" else [{}]
 
 
 @pytest.mark.parametrize('missing_struct_conf', missing_struct_confs, ids=idfn)
