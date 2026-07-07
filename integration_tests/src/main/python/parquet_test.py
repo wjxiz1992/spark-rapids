@@ -821,8 +821,18 @@ def test_parquet_read_merge_schema_from_conf(spark_tmp_path, v1_enabled_list, re
             conf=all_confs)
 
 missing_struct_confs = [
-    {'spark.sql.legacy.parquet.returnNullStructIfAllFieldsMissing': value}
-    for value in [False, True]
+    {
+        'spark.sql.legacy.parquet.returnNullStructIfAllFieldsMissing': False,
+        'spark.sql.optimizer.nestedSchemaPruning.enabled': True,
+    },
+    {
+        'spark.sql.legacy.parquet.returnNullStructIfAllFieldsMissing': False,
+        'spark.sql.optimizer.nestedSchemaPruning.enabled': False,
+    },
+    {
+        'spark.sql.legacy.parquet.returnNullStructIfAllFieldsMissing': True,
+        'spark.sql.optimizer.nestedSchemaPruning.enabled': True,
+    },
 ] if spark_version() >= "4.1.0" else [{}]
 
 
