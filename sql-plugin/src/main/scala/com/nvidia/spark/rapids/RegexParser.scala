@@ -214,8 +214,6 @@ class RegexParser(pattern: String) {
           val octalChar = parseOctalDigit
           octalChar.codePoint match {
             case 0 => RegexHexDigit("00")
-            // Octal escapes parse at most `\0mnn` with m <= 3, so codePoint <= 0xFF;
-            // no supplementary-codepoint guard is needed.
             case codePoint => RegexChar(codePoint.toChar)
           }
         case Some(ch) =>
@@ -565,6 +563,7 @@ class RegexParser(pattern: String) {
     // \0n   The character with octal value 0n (0 <= n <= 7)
     // \0nn  The character with octal value 0nn (0 <= n <= 7)
     // \0mnn The character with octal value 0mnn (0 <= m <= 3, 0 <= n <= 7)
+    // Therefore, codePoint <= 0xFF and no supplementary-codepoint guard is needed.
 
     def parseOctalDigits(n: Integer): RegexOctalChar = {
       val octal = pattern.substring(pos, pos + n)
