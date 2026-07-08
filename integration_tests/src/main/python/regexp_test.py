@@ -530,11 +530,7 @@ def test_regexp_replace_character_set_negated():
         conf=_regexp_conf)
 
 def test_regexp_extract():
-    gen = mk_str_gen('[abcd]{1,3}[0-9]{1,3}/?[abcd]{1,3}') \
-        .with_special_case('a') \
-        .with_special_case('b') \
-        .with_special_case('ab') \
-        .with_special_case('cd')
+    gen = mk_str_gen('[abcd]{1,3}[0-9]{1,3}/?[abcd]{1,3}')
     assert_gpu_and_cpu_are_equal_collect(
             lambda spark: unary_op_df(spark, gen).selectExpr(
                 'regexp_extract(a, "([0-9]+)", 1)',
@@ -546,7 +542,12 @@ def test_regexp_extract():
                 'regexp_extract(a, "^([a-d]*)([0-9]*)\\\\/([a-d]*)", 3)',
                 'regexp_extract(a, "^([a-d]*)([0-9]*)\\\\/([a-d]*)$", 3)',
                 'regexp_extract(a, "^([a-d]*)([0-9]*)(\\\\/[a-d]*)", 3)',
-                'regexp_extract(a, "^([a-d]*)([0-9]*)(\\\\/[a-d]*)$", 3)',
+                'regexp_extract(a, "^([a-d]*)([0-9]*)(\\\\/[a-d]*)$", 3)'),
+        conf=_regexp_conf)
+
+    capture_group_gen = mk_str_gen('[abcd]{1,2}')
+    assert_gpu_and_cpu_are_equal_collect(
+            lambda spark: unary_op_df(spark, capture_group_gen).selectExpr(
                 'regexp_extract(a, "(a)|(b)", 2)',
                 'regexp_extract(a, "(?:(a)(b))", 2)',
                 'regexp_extract(a, "((a)|(b))", 3)',
@@ -914,17 +915,20 @@ def test_regexp_extract_all_idx_zero():
 
 @pytest.mark.parametrize('slices', [4, 40, 400], ids=idfn)
 def test_regexp_extract_all_idx_positive(slices):
-    gen = mk_str_gen('[abcd]{0,3}[0-9]{0,3}-[0-9]{0,3}[abcd]{1,3}') \
-        .with_special_case('a') \
-        .with_special_case('b') \
-        .with_special_case('abab') \
-        .with_special_case('cdcd')
+    gen = mk_str_gen('[abcd]{0,3}[0-9]{0,3}-[0-9]{0,3}[abcd]{1,3}')
     assert_gpu_and_cpu_are_equal_collect(
             lambda spark: unary_op_df(spark, gen, num_slices=slices).selectExpr(
                 'regexp_extract_all(a, "([a-d]+).*([0-9])", 1)',
                 'regexp_extract_all(a, "(a)(b)", 2)',
                 'regexp_extract_all(a, "([a-z0-9]((([abcd](\\\\d?)))))", 3)',
                 'regexp_extract_all(a, "(\\\\d+)-(\\\\d+)", 2)',
+            ),
+        conf=_regexp_conf)
+
+    capture_group_gen = mk_str_gen('[abcd]{1,2}')
+    assert_gpu_and_cpu_are_equal_collect(
+            lambda spark: unary_op_df(
+                spark, capture_group_gen, num_slices=slices).selectExpr(
                 'regexp_extract_all(a, "(a)|(b)", 2)',
                 'regexp_extract_all(a, "(?:(a)(b))", 2)',
                 'regexp_extract_all(a, "((a)|(b))", 3)',
