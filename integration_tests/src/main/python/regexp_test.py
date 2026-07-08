@@ -460,18 +460,23 @@ def test_regexp_replace():
         conf=_regexp_conf)
 
 def test_regexp_replace_mixed_sequence():
-    gen = mk_str_gen('[abcd]{0,3}') \
+    suffix_gen = mk_str_gen('[abcd]{0,3}') \
         .with_special_case('xfoocat') \
         .with_special_case('foofoocat') \
         .with_special_case('foofish') \
-        .with_special_case('foodog') \
+        .with_special_case('foodog')
+    assert_gpu_and_cpu_are_equal_collect(
+            lambda spark: unary_op_df(spark, suffix_gen).selectExpr(
+                'regexp_replace(a, "foo(cat|dog)", "X")',
+                'regexp_replace(a, "(foo)(cat)", "X")'),
+        conf=_regexp_conf)
+
+    prefix_gen = mk_str_gen('[abcd]{0,3}') \
         .with_special_case('catfoo') \
         .with_special_case('dogfoo')
     assert_gpu_and_cpu_are_equal_collect(
-            lambda spark: unary_op_df(spark, gen).selectExpr(
-                'regexp_replace(a, "foo(cat|dog)", "X")',
-                'regexp_replace(a, "(cat|dog)foo", "X")',
-                'regexp_replace(a, "(foo)(cat)", "X")'),
+            lambda spark: unary_op_df(spark, prefix_gen).selectExpr(
+                'regexp_replace(a, "(cat|dog)foo", "X")'),
         conf=_regexp_conf)
 
 @pytest.mark.skipif(is_before_spark_320(), reason='regexp is synonym for RLike starting in Spark 3.2.0')
