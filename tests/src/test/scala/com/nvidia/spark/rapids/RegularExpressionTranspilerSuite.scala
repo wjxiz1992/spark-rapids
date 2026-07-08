@@ -270,34 +270,23 @@ class RegularExpressionTranspilerSuite extends AnyFunSuite {
       Seq("", "a", "x￿y", "xÿy", "￿", "ÿ"))
   }
 
-  test("CudfRegexTranspiler.rewrite recurses into RegexCharacterRange") {
-    // Exercise the AST overload directly: the string parser normally converts
-    // these endpoints before the range reaches the transpiler.
-    val directRange = RegexCharacterRange(RegexHexDigit("80"), RegexHexDigit("ff"))
-    val (rewrittenRange, replacement) = new CudfRegexTranspiler(RegexFindMode)
-      .getTranspiledAST(directRange, None, None)
-    assert(replacement.isEmpty)
-    assert(rewrittenRange === RegexCharacterRange(RegexChar('\u0080'), RegexChar('\u00ff')))
+  test("RegexCharacterRange endpoints are canonical characters") {
+    val expectedDotRange = RegexSequence(ListBuffer(
+      RegexCharacterClass(negated = false, ListBuffer(RegexCharacterRange('.', '.')))))
+    Seq(raw"[\.-\.]", raw"[\x2e-\x2e]", raw"[\056-\056]", raw"[\x{2e}-\x{2e}]")
+      .foreach { pattern =>
+        val parsed = new RegexParser(pattern).parse()
+        assert(parsed === expectedDotRange)
+        assert(parsed.toRegexString === "[.-.]")
+      }
 
-    // These characters are literals in a range. Without the endpoint bypass,
-    // the ordinary top-level rewrite would treat them as anchors or wildcard.
-    "^$.".foreach { ch =>
-      val literalRange = RegexCharacterRange(RegexChar(ch), RegexChar(ch))
-      val (rewrittenLiteralRange, _) = new CudfRegexTranspiler(RegexFindMode)
-        .getTranspiledAST(literalRange, None, None)
-      assert(rewrittenLiteralRange === literalRange)
-    }
+    val expectedBmpRange = RegexSequence(ListBuffer(
+      RegexCharacterClass(negated = false,
+        ListBuffer(RegexCharacterRange('\u0080', '\u00ff')))))
+    Seq(raw"[\x80-\xff]", raw"[\x{80}-\x{ff}]", raw"[\0200-\0377]")
+      .foreach(pattern => assert(new RegexParser(pattern).parse() === expectedBmpRange))
 
-    // A range endpoint must remain a character-class component after recursion.
-    val invalidRange = RegexCharacterRange(RegexEscaped('s'), RegexChar('z'))
-    val error = intercept[RegexUnsupportedException] {
-      new CudfRegexTranspiler(RegexFindMode).getTranspiledAST(invalidRange, None, None)
-    }
-    assert(error.getMessage.contains(
-      "Character range start did not transpile to a character class component"))
-
-    // Parsed BMP ranges round-trip through GPU == CPU parity. This also protects
-    // the `^$.` literal bypass used while recursively rewriting range endpoints.
+    // Parsed BMP ranges round-trip through GPU == CPU parity after canonicalization.
     val bmpRangePatterns = Seq(
       raw"[\x41-\x5a]",            // ASCII A-Z via 2-digit hex on both sides
       raw"[\x{41}-\x{5a}]",        // ASCII A-Z via braced hex on both sides
@@ -1267,13 +1256,13 @@ class FuzzRegExp(suggestedChars: String, skipKnownIssues: Boolean = true,
 
   private def charRange: RegexCharacterClassComponent = {
     val generators = Seq[() => RegexCharacterClassComponent](
-      () => RegexCharacterRange(RegexChar('a'), RegexChar('z')),
-      () => RegexCharacterRange(RegexChar('A'), RegexChar('Z')),
-      () => RegexCharacterRange(RegexChar('z'), RegexChar('a')),
-      () => RegexCharacterRange(RegexChar('Z'), RegexChar('A')),
-      () => RegexCharacterRange(RegexChar('0'), RegexChar('9')),
-      () => RegexCharacterRange(RegexChar('9'), RegexChar('0')),
-      () => RegexCharacterRange(char, char)
+      () => RegexCharacterRange('a', 'z'),
+      () => RegexCharacterRange('A', 'Z'),
+      () => RegexCharacterRange('z', 'a'),
+      () => RegexCharacterRange('Z', 'A'),
+      () => RegexCharacterRange('0', '9'),
+      () => RegexCharacterRange('9', '0'),
+      () => RegexCharacterRange(char.ch, char.ch)
     )
     generators(rr.nextInt(generators.length))()
   }

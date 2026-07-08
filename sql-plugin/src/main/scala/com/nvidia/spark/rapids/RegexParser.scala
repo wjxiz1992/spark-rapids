@@ -219,7 +219,7 @@ class RegexParser(pattern: String) {
         case Some(ch) =>
           consumeExpected(ch) match {
             // NOTE: Should switch to ASCII mode to simplify and expand this fix
-            case 'd' => RegexCharacterRange(RegexChar('0'), RegexChar('9'))
+            case 'd' => RegexCharacterRange('0', '9')
             // List of character literals with an escape from here, under "Characters"
             // https://docs.oracle.com/javase/8/docs/api/java/util/regex/Pattern.html
             case ch if escapeChars.contains(ch) =>
@@ -472,15 +472,15 @@ class RegexParser(pattern: String) {
       // https://docs.oracle.com/javase/8/docs/api/java/util/regex/Pattern.html
       className match {
         case "Lower" =>
-          ListBuffer(RegexCharacterRange(RegexChar('a'), RegexChar('z')))
+          ListBuffer(RegexCharacterRange('a', 'z'))
         case "Upper" =>
-          ListBuffer(RegexCharacterRange(RegexChar('A'), RegexChar('Z')))
+          ListBuffer(RegexCharacterRange('A', 'Z'))
         case "ASCII" =>
-          ListBuffer(RegexCharacterRange(RegexHexDigit("00"), RegexChar('\u007f')))
+          ListBuffer(RegexCharacterRange('\u0000', '\u007f'))
         case "Alpha" =>
           ListBuffer(getCharacters("Lower"), getCharacters("Upper")).flatten
         case "Digit" =>
-          ListBuffer(RegexCharacterRange(RegexChar('0'), RegexChar('9')))
+          ListBuffer(RegexCharacterRange('0', '9'))
         case "Alnum" =>
           ListBuffer(getCharacters("Alpha"), getCharacters("Digit")).flatten
         case "Punct" =>
@@ -495,12 +495,12 @@ class RegexParser(pattern: String) {
         case "Blank" =>
           ListBuffer(RegexChar(' '), RegexEscaped('t'))
         case "Cntrl" =>
-          ListBuffer(RegexCharacterRange(RegexHexDigit("00"), RegexChar('\u001f')),
+          ListBuffer(RegexCharacterRange('\u0000', '\u001f'),
             RegexChar('\u007f'))
         case "XDigit" =>
-          ListBuffer(RegexCharacterRange(RegexChar('0'), RegexChar('9')),
-            RegexCharacterRange(RegexChar('a'), RegexChar('f')),
-            RegexCharacterRange(RegexChar('A'), RegexChar('F')))
+          ListBuffer(RegexCharacterRange('0', '9'),
+            RegexCharacterRange('a', 'f'),
+            RegexCharacterRange('A', 'F'))
         case "Space" =>
           ListBuffer(" \t\n\u000B\f\r".map(RegexChar): _*)
         case _ =>
@@ -890,15 +890,7 @@ class CudfRegexTranspiler(mode: RegexMode) {
     val componentsWithoutLinefeed = components.filterNot {
       case RegexChar(ch) => ch == '\r'
       case RegexEscaped(ch) => ch == 'r'
-      case RegexCharacterRange(startRegex, RegexChar(end)) =>
-        val start = startRegex match {
-          case RegexChar(ch) => ch
-          case r @ RegexOctalChar(_) => r.codePoint.toChar
-          case r @ RegexHexDigit(_) => r.codePoint.toChar
-          case other => throw new RegexUnsupportedException(
-            s"Unexpected expression at start of character range: ${other.toRegexString}",
-            other.position)
-        }
+      case RegexCharacterRange(start, end) =>
         start <= '\r' && end >= '\r'
       case _ =>
         false
@@ -1143,7 +1135,7 @@ class CudfRegexTranspiler(mode: RegexMode) {
           // of [0-9]
           // https://github.com/rapidsai/cudf/issues/10894
           val components = ListBuffer[RegexCharacterClassComponent](
-            RegexCharacterRange(RegexChar('0'), RegexChar('9')))
+            RegexCharacterRange('0', '9'))
           if (ch.isUpper) {
             negateCharacterClass(components)
           } else {
@@ -1153,10 +1145,10 @@ class CudfRegexTranspiler(mode: RegexMode) {
           // cuDF is not compatible with Java for \w so we transpile to Java's definition
           // of `[a-zA-Z_0-9]`
           val components = ListBuffer[RegexCharacterClassComponent](
-            RegexCharacterRange(RegexChar('a'), RegexChar('z')),
-            RegexCharacterRange(RegexChar('A'), RegexChar('Z')),
+            RegexCharacterRange('a', 'z'),
+            RegexCharacterRange('A', 'Z'),
             RegexChar('_'),
-            RegexCharacterRange(RegexChar('0'), RegexChar('9')))
+            RegexCharacterRange('0', '9'))
           if (ch.isUpper) {
             negateCharacterClass(components)
           } else {
@@ -1214,7 +1206,7 @@ class CudfRegexTranspiler(mode: RegexMode) {
             RegexChar('\u202f'), RegexChar('\u205f'), RegexChar('\u3000')
           )
           chars += RegexEscaped('t')
-          chars += RegexCharacterRange(RegexChar('\u2000'), RegexChar('\u200a'))
+          chars += RegexCharacterRange('\u2000', '\u200a')
           if (ch.isUpper) {
             negateCharacterClass(chars)
           } else {
@@ -1251,37 +1243,10 @@ class CudfRegexTranspiler(mode: RegexMode) {
           regex
       }
 
-      case RegexCharacterRange(start, end) =>
-        // Recurse into both endpoints so that hex/octal/meta-character
-        // normalisation applies to range endpoints the same way it applies
-        // to standalone literals. Without this recursion
-        // the arm is a no-op and the range AST is emitted unrewritten —
-        // a latent bug that surfaces for any future path that constructs
-        // a `RegexCharacterRange` with a non-`RegexChar` endpoint
-        // requiring normalisation. See NVIDIA/spark-rapids#14745.
-        //
-        // Mirrors the `^$.` bypass that `RegexCharacterClass` (a few lines
-        // below) applies: inside a character class — and hence inside a
-        // range — those three characters are literal, never anchors or
-        // dot, so they must NOT be re-routed through the top-level
-        // RegexChar arm. Without this guard the recursive call rewrites
-        // `RegexChar('$')` to `\Z`, producing `[\Z-\Z]` which then breaks
-        // cuDF compilation (regression seen in the `string split fuzz`
-        // tests).
-        def rewriteEndpoint(comp: RegexCharacterClassComponent,
-            label: String): RegexCharacterClassComponent = comp match {
-          case r @ RegexChar(ch) if "^$.".contains(ch) => r
-          case other => rewrite(other, replacement, None, flags) match {
-            case c: RegexCharacterClassComponent => c
-            case _ =>
-              throw new RegexUnsupportedException(
-                s"Character range $label did not transpile to a character " +
-                "class component", other.position)
-          }
-        }
-        RegexCharacterRange(
-          rewriteEndpoint(start, "start"),
-          rewriteEndpoint(end, "end"))
+      case RegexCharacterRange(_, _) =>
+        // Range endpoints are canonical characters, not syntax nodes, so there is
+        // nothing left for the transpiler to normalize.
+        regex
 
       case RegexCharacterClass(negated, characters) =>
         characters.foreach {
@@ -1886,18 +1851,24 @@ sealed case class RegexEscaped(a: Char) extends RegexCharacterClassComponent {
   override def toRegexString: String = s"\\$a"
 }
 
-sealed case class RegexCharacterRange(start: RegexCharacterClassComponent,
-    end: RegexCharacterClassComponent)
+sealed case class RegexCharacterRange(start: Char, end: Char)
   extends RegexCharacterClassComponent{
-  def this(start: RegexCharacterClassComponent,
-           end: RegexCharacterClassComponent,
-           position: Int) = {
+  def this(start: Char, end: Char, position: Int) = {
     this(start, end)
     this.position = Some(position)
   }
 
   override def children(): Seq[RegexAST] = Seq.empty
-  override def toRegexString: String =  s"${start.toRegexString}-${end.toRegexString}"
+  override def toRegexString: String =
+    s"${RegexCharacterRange.escape(start)}-${RegexCharacterRange.escape(end)}"
+}
+
+object RegexCharacterRange {
+  private def escape(ch: Char): String = ch match {
+    case '\u0000' => "\\x00"
+    case '\\' | '[' | ']' | '^' | '-' => s"\\$ch"
+    case _ => ch.toString
+  }
 }
 
 sealed case class RegexCharacterClass(
@@ -1928,7 +1899,19 @@ sealed case class RegexCharacterClass(
 
   def appendRange(start: RegexCharacterClassComponent,
       end: RegexCharacterClassComponent): Unit = {
-    characters += RegexCharacterRange(start, end)
+    def canonicalCharacter(component: RegexCharacterClassComponent): Char = component match {
+      case RegexChar(ch) => ch
+      case RegexEscaped(ch) => ch
+      case hex @ RegexHexDigit(_) => hex.codePoint.toChar
+      case octal @ RegexOctalChar(_) => octal.codePoint.toChar
+      case other =>
+        throw new RegexUnsupportedException(
+          s"Character range endpoint is not a character: ${other.toRegexString}",
+          other.position)
+    }
+
+    characters += RegexCharacterRange(
+      canonicalCharacter(start), canonicalCharacter(end))
   }
 
   override def toRegexString: String = {
@@ -2047,12 +2030,9 @@ object RegexRewrite {
     val endsWithRange = astLs.lastOption match {
       case Some(ast) => removeBrackets(collection.Seq(ast)) match {
         case collection.Seq(RegexRepetition(
-            RegexCharacterClass(false, ListBuffer(RegexCharacterRange(a,b))), 
+            RegexCharacterClass(false, ListBuffer(RegexCharacterRange(a, b))),
             quantifier)) => {
-          val (start, end) = (a, b) match {
-            case (RegexChar(start), RegexChar(end)) => (start, end)
-            case _ => return None
-          }
+          val (start, end) = (a, b)
           val length = quantifier match {
             // In Rlike, contains [a-b]{minLen,maxLen} pattern is equivalent to contains 
             // [a-b]{minLen} because the matching will return the result once it finds the 
