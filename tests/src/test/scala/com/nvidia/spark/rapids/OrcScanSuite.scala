@@ -43,6 +43,10 @@ class OrcScanSuite extends SparkQueryCompareTestSuite {
   testSparkResultsAreEqual("Test ORC count chunked by bytes", fileSplitsOrc,
     new SparkConf().set(RapidsConf.MAX_READER_BATCH_SIZE_BYTES.key, "100"))(frameCount)
 
+  testSparkResultsAreEqual("schema evolution with all top-level fields missing",
+    frameFromOrcWithSchema("schema-can-prune.orc", StructType(Seq(
+      StructField("missing", StringType))))) { frame => frame }
+
   testSparkResultsAreEqual("schema-can-prune dis-order read schema",
     frameFromOrcWithSchema("schema-can-prune.orc", StructType(Seq(
       StructField("c2_string", StringType),

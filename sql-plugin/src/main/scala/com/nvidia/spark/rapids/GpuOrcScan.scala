@@ -1664,7 +1664,7 @@ private case class GpuOrcFileFilterHandler(
       }
 
       (checkTypeCompatibility(fileSchema, readSchema, isCaseAware, fileIncluded, isForcePos,
-        isOrcFloatTypesToStringEnable),
+        isOrcFloatTypesToStringEnable, isRoot = true),
         fileIncluded)
     }
 
@@ -1679,7 +1679,8 @@ private case class GpuOrcFileFilterHandler(
         isCaseAware: Boolean,
         fileIncluded: Array[Boolean],
         isForcePos: Boolean,
-        isOrcFloatTypesToStringEnable: Boolean): TypeDescription = {
+        isOrcFloatTypesToStringEnable: Boolean,
+        isRoot: Boolean): TypeDescription = {
       (fileType.getCategory, readType.getCategory) match {
         case (TypeDescription.Category.STRUCT, TypeDescription.Category.STRUCT) =>
           // Check for the top or nested struct types.
@@ -1708,12 +1709,17 @@ private case class GpuOrcFileFilterHandler(
             .zipWithIndex.foreach { case ((fileFieldName, fType), idx) =>
             getReadFieldType(fileFieldName, idx).foreach { case (rField, rType) =>
               val newChild = checkTypeCompatibility(fType, rType,
-                isCaseAware, fileIncluded, isForcePos, isOrcFloatTypesToStringEnable)
+                isCaseAware, fileIncluded, isForcePos, isOrcFloatTypesToStringEnable,
+                isRoot = false)
               prunedReadSchema.addField(rField, newChild)
             }
           }
           fileIncluded(fileType.getId) = true
-          if (prunedReadSchema.getChildren.isEmpty && !fileType.getChildren.isEmpty) {
+          // The ORC root struct is only a schema container, so retaining one of its children
+          // would turn a zero-column scan into a one-column scan. Nested structs need a child
+          // retained to carry their parent validity through schema evolution.
+          if (!isRoot && prunedReadSchema.getChildren.isEmpty &&
+              !fileType.getChildren.isEmpty) {
             retainCheapestColumn(fileType, fileIncluded)
           } else {
             prunedReadSchema
@@ -1723,16 +1729,16 @@ private case class GpuOrcFileFilterHandler(
         case (TypeDescription.Category.LIST, TypeDescription.Category.LIST) =>
           val newChild = checkTypeCompatibility(fileType.getChildren.get(0),
             readType.getChildren.get(0), isCaseAware, fileIncluded, isForcePos,
-            isOrcFloatTypesToStringEnable)
+            isOrcFloatTypesToStringEnable, isRoot = false)
           fileIncluded(fileType.getId) = true
           TypeDescription.createList(newChild)
         case (TypeDescription.Category.MAP, TypeDescription.Category.MAP) =>
           val newKey = checkTypeCompatibility(fileType.getChildren.get(0),
             readType.getChildren.get(0), isCaseAware, fileIncluded, isForcePos,
-            isOrcFloatTypesToStringEnable)
+            isOrcFloatTypesToStringEnable, isRoot = false)
           val newValue = checkTypeCompatibility(fileType.getChildren.get(1),
             readType.getChildren.get(1), isCaseAware, fileIncluded, isForcePos,
-            isOrcFloatTypesToStringEnable)
+            isOrcFloatTypesToStringEnable, isRoot = false)
           fileIncluded(fileType.getId) = true
           TypeDescription.createMap(newKey, newValue)
         case (ft, rt) if ft.isPrimitive && rt.isPrimitive =>
