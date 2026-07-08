@@ -709,6 +709,9 @@ def test_regexp_hexadecimal_digits():
     r'\\x{10000}',    # lowest supplementary codepoint
     r'\\x{10FFFF}',   # highest valid Unicode codepoint
     r'a\\x{1F600}b',  # supplementary codepoint embedded in a literal
+    # Range endpoints go through the same centralized supplementary hex guard.
+    r'[\\x{1F600}-\\x{1F64F}]',
+    r'[\\x{10000}-\\x{10FFFF}]',
 ])
 def test_rlike_supplementary_codepoint_fallback(pattern):
     # Issue NVIDIA/spark-rapids#14744 regression coverage. Before the
