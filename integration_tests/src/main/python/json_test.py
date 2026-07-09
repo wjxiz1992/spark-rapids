@@ -1606,7 +1606,7 @@ def test_spark_from_json_timestamp_format_option_zoneid(zone_id):
         'spark.rapids.sql.expression.cpuBridge.enabled': 'false'})
     assert_gpu_fallback_collect(
         lambda spark : spark.createDataFrame(data, 'json STRING').select(f.col('json'), f.from_json(f.col('json'), schema, {'timestampFormat': "yyyy-MM-dd'T'HH:mm:ss",'timeZone': zone_id})),
-        'JsonToStructs',
+        'ProjectExec',
         conf=conf)
 
 @pytest.mark.parametrize('zone_id', [
