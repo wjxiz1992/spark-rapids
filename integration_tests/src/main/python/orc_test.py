@@ -650,6 +650,30 @@ def test_read_orc_with_all_nested_fields_missing(
     assert_gpu_and_cpu_are_equal_collect(
         lambda spark: spark.read.schema(read_schema).orc(map_data_path), conf=all_confs)
 
+    array_struct_data_path = spark_tmp_path + '/ORC_ARRAY_STRUCT_DATA'
+    with_cpu_session(
+        lambda spark: spark.sql("""
+            SELECT array(named_struct('first', 'Janet')) AS names
+            UNION ALL SELECT cast(null AS array<struct<first:string>>)
+            """).write.orc(array_struct_data_path))
+    array_struct_read_schema = StructType([StructField('names', ArrayType(StructType([
+        StructField('middle', StringType())])))])
+    assert_gpu_and_cpu_are_equal_collect(
+        lambda spark: spark.read.schema(array_struct_read_schema).orc(array_struct_data_path),
+        conf=all_confs)
+
+    map_struct_data_path = spark_tmp_path + '/ORC_MAP_STRUCT_DATA'
+    with_cpu_session(
+        lambda spark: spark.sql("""
+            SELECT map('primary', named_struct('first', 'Janet')) AS names
+            UNION ALL SELECT cast(null AS map<string,struct<first:string>>)
+            """).write.orc(map_struct_data_path))
+    map_struct_read_schema = StructType([StructField('names', MapType(
+        StringType(), StructType([StructField('middle', StringType())])))])
+    assert_gpu_and_cpu_are_equal_collect(
+        lambda spark: spark.read.schema(map_struct_read_schema).orc(map_struct_data_path),
+        conf=all_confs)
+
 
 # This is for the corner case of reading only a struct column that has no nulls.
 # Then there will be no streams in a stripe connecting to this column (Its ROW_INDEX
