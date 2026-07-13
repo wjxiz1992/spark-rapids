@@ -31,16 +31,18 @@ TEXT_INPUT_EXEC='FileSourceScanExec'
 # allow non gpu when time zone is non-UTC because of https://github.com/NVIDIA/spark-rapids/issues/9653'
 non_utc_file_source_scan_allow = ['FileSourceScanExec'] if is_not_utc() else []
 
-non_utc_project_allow = ['StructsToJson', 'JsonToStructs'] if is_not_utc() else []
-
 # Spark 4.0+ lowers some to_json fallbacks through ProjectExec + evaluator invocation
 # instead of exposing StructsToJson directly as the non-GPU plan node. Databricks
 # keeps the Project on GPU and bridges only the StructsToJson expression to CPU.
-structs_to_json_uses_project_fallback = is_spark_400_or_later() and not is_databricks_runtime()
+to_json_uses_project_fallback = is_spark_400_or_later() and not is_databricks_runtime()
+
+non_utc_project_allow = (['StructsToJson', 'JsonToStructs'] +
+                         (['ProjectExec'] if to_json_uses_project_fallback else [])) \
+    if is_not_utc() else []
 structs_to_json_fallback_allow = ['StructsToJson'] + \
-    (['ProjectExec'] if structs_to_json_uses_project_fallback else [])
+    (['ProjectExec'] if to_json_uses_project_fallback else [])
 structs_to_json_fallback_class = \
-    'ProjectExec' if structs_to_json_uses_project_fallback else 'StructsToJson'
+    'ProjectExec' if to_json_uses_project_fallback else 'StructsToJson'
 
 
 json_supported_gens = [
@@ -334,7 +336,7 @@ def json_ts_formats_round_trip_ntz(spark_tmp_path, timestamp_format, timestamp_t
     'ints.json',
     pytest.param('ints_invalid.json', marks=pytest.mark.xfail(reason='https://github.com/NVIDIA/spark-rapids/issues/4940')), # This fails for dates, as not all are invalid
     'nan_and_inf.json',
-    pytest.param('nan_and_inf_strings.json', marks=pytest.mark.skipif(is_before_spark_330(), reason='https://issues.apache.org/jira/browse/SPARK-38060 fixed in Spark 3.3.0')),
+    'nan_and_inf_strings.json',
     'nan_and_inf_invalid.json',
     'floats.json',
     'floats_leading_zeros.json',
@@ -383,7 +385,7 @@ def test_basic_json_read(std_input_path, filename, schema, read_func, allow_non_
     'ints.json',
     pytest.param('ints_invalid.json', marks=pytest.mark.xfail(reason='https://github.com/NVIDIA/spark-rapids/issues/4940')), # This fails for dates, as not all are invalid
     'nan_and_inf.json',
-    pytest.param('nan_and_inf_strings.json', marks=pytest.mark.skipif(is_before_spark_330(), reason='https://issues.apache.org/jira/browse/SPARK-38060 fixed in Spark 3.3.0')),
+    'nan_and_inf_strings.json',
     'nan_and_inf_invalid.json',
     'floats.json',
     'floats_leading_zeros.json',
