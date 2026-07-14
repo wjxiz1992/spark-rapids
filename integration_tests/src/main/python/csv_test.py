@@ -255,8 +255,18 @@ def test_basic_csv_read(std_input_path, name, schema, options, read_func, v1_ena
         'spark.sql.sources.useV1SourceList': v1_enabled_list,
         'spark.sql.ansi.enabled': ansi_enabled
     })
-    assert_gpu_and_cpu_are_equal_collect(read_func(std_input_path + '/' + name, schema, spark_tmp_table_factory, options),
-            conf=updated_conf)
+    read = read_func(std_input_path + '/' + name, schema, spark_tmp_table_factory, options)
+    if name == 'trucks-null.csv' and 'nullValue' not in options:
+        if v1_enabled_list == 'csv':
+            gpu_scan = 'GpuFileSourceScanExec'
+        elif read_func is read_csv_sql:
+            gpu_scan = 'GpuFileSourceScanExec'
+        else:
+            gpu_scan = 'GpuBatchScanExec'
+        assert_cpu_and_gpu_are_equal_collect_with_capture(
+            read, exist_classes=gpu_scan, conf=updated_conf)
+    else:
+        assert_gpu_and_cpu_are_equal_collect(read, conf=updated_conf)
 
 @pytest.mark.parametrize('name,schema,options', [
     pytest.param('small_float_values.csv', _float_schema, {'header': 'true'}),
