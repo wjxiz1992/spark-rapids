@@ -214,7 +214,7 @@ def read_csv_sql(data_path, schema, spark_tmp_table_factory, options = {}):
     ('trucks-more-comments.csv', _trucks_schema,  {'header': 'true', 'comment': '#'}),
     pytest.param('trucks-missing-quotes.csv', _trucks_schema, {'header': 'true'}, marks=pytest.mark.xfail(reason='https://github.com/NVIDIA/spark-rapids/issues/130')),
     pytest.param('trucks-null.csv', _trucks_schema, {'header': 'true', 'nullValue': 'null'}, marks=pytest.mark.xfail(reason='https://github.com/NVIDIA/spark-rapids/issues/2068')),
-    pytest.param('trucks-null.csv', _trucks_schema, {'header': 'true'}, marks=pytest.mark.xfail(reason='https://github.com/NVIDIA/spark-rapids/issues/1986')),
+    ('trucks-null.csv', _trucks_schema, {'header': 'true'}),
     pytest.param('simple_int_values.csv', _byte_schema, {'header': 'true'}),
     pytest.param('simple_int_values.csv', _short_schema, {'header': 'true'}),
     pytest.param('simple_int_values.csv', _int_schema, {'header': 'true'}),
