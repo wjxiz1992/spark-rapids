@@ -111,7 +111,7 @@ def assert_rule_skipped(fn, on_conf, off_conf, marker, physical=False, required_
     assert marker not in on_plan, \
         "runtime skip failed: marker '%s' present with rule ON\n%s" % (marker, on_plan)
     assert marker not in off_plan, \
-        "marker '%s' present with rule OFF, not a valid skipped-path check\n%s" % (
+        "marker '%s' present in OFF-CPU baseline, not a valid skipped-path check\n%s" % (
             marker, off_plan)
     for required_marker in required_on_markers:
         assert required_marker in on_plan, \
