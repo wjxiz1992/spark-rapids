@@ -27,7 +27,9 @@ SKEWED_BHJ_MARKER = "coalesced and skewed"
 # executorBroadcast. This marker proves the shim guard's exact precondition was
 # reached rather than accepting any broadcast hash join as a skipped-rule path.
 DB_EXECUTOR_BROADCAST_MARKER = "GpuBuildRight, false, true"
-DB_COALESCED_READER_MARKER = "GpuCustomShuffleReader coalesced"
+# The keyed exchange identifies the explicitly repartitioned streamed input.
+# GpuShuffleCoalesce alone is not specific because aggregate stages can add it.
+DB_STREAMED_SHUFFLE_MARKER = "GpuColumnarExchange gpuhashpartitioning(key1"
 
 
 def _skewed_bhj_conf_extra():
@@ -106,9 +108,9 @@ def test_optimize_skewed_bhj_join_skips_on_databricks_executor_broadcast(spark_t
     rewrite, as verified by the positive Apache test above. The streamed-side
     skew marker must remain absent while CPU and GPU results still match. The
     required markers verify a non-null-aware, executor-broadcast build-right join
-    with an ordinary coalesced reader."""
+    whose streamed input retains the expected GPU hash-partitioning exchange."""
     on, off = _skewed_bhj_confs()
     assert_rule_skipped(_skewed_bhj_global_agg, on, off, marker=SKEWED_BHJ_MARKER,
                         physical=True, required_on_markers=(
                             DB_EXECUTOR_BROADCAST_MARKER,
-                            DB_COALESCED_READER_MARKER))
+                            DB_STREAMED_SHUFFLE_MARKER))
