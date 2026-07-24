@@ -492,7 +492,6 @@ def test_csv_save_as_table_fallback(spark_tmp_path, spark_tmp_table_factory):
             data_path,
             'DataWritingCommandExec')
 
-@pytest.mark.skipif(is_before_spark_330(), reason='Hidden file metadata columns are a new feature of Spark 330')
 @allow_non_gpu(any = True)
 @pytest.mark.parametrize('metadata_column', ["file_path", "file_name", "file_size", "file_modification_time"])
 def test_csv_scan_with_hidden_metadata_fallback(spark_tmp_path, metadata_column):
@@ -512,7 +511,6 @@ def test_csv_scan_with_hidden_metadata_fallback(spark_tmp_path, metadata_column)
         exist_classes= "FileSourceScanExec",
         non_exist_classes= "GpuBatchScanExec")
 
-@pytest.mark.skipif(is_before_spark_330(), reason='Reading day-time interval type is supported from Spark3.3.0')
 @pytest.mark.parametrize('v1_enabled_list', ["", "csv"])
 def test_round_trip_for_interval(spark_tmp_path, v1_enabled_list):
     csv_interval_gens = [
@@ -708,8 +706,8 @@ def test_read_case_col_name(spark_tmp_path, spark_tmp_table_factory, read_func, 
 def test_csv_read_gbk_encoded_data(std_input_path):
     # Conf does not work before 4.0.0, so verify even setting to false it should still work.
     legacy_charset = "false"
-    if is_spark_400_or_later() or is_databricks143_or_later():
-        # true from Spark 4.0.0 or DB 143 to pass the test for GBK.
+    if is_spark_400_or_later() or is_databricks_runtime():
+        # true from Spark 4.0.0 or on supported Databricks runtimes to pass the test for GBK.
         # We can not test the "GBK-with-false" case because Spark will fail the
         # current app before running into the GPU world.
         legacy_charset = "true"

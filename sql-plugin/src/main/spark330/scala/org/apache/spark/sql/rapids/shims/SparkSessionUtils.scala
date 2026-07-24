@@ -24,7 +24,6 @@
 {"spark": "334"}
 {"spark": "340"}
 {"spark": "341"}
-{"spark": "341db"}
 {"spark": "342"}
 {"spark": "343"}
 {"spark": "344"}
@@ -52,5 +51,9 @@ object SparkSessionUtils {
 
   def leafNodeDefaultParallelism(ss: SparkSession): Int = {
     ss.leafNodeDefaultParallelism
+  }
+
+  def withActiveSession[T](ss: SparkSession)(body: => T): T = {
+    ss.withActive(body)
   }
 }

@@ -14,13 +14,13 @@
 
 import pytest
 from asserts import assert_gpu_and_cpu_are_equal_collect, assert_gpu_fallback_collect, assert_gpu_and_cpu_error, assert_gpu_and_cpu_are_equal_sql
-from conftest import is_utc, get_test_tz
+from conftest import is_utc, get_test_tz, is_databricks_runtime
 from data_gen import *
 from datetime import date, datetime, timezone
 from dateutil import tz
 from marks import allow_non_gpu, approximate_float, datagen_overrides, disable_ansi_mode, ignore_order, incompat, tz_sensitive_test
 from pyspark.sql.types import *
-from spark_session import with_cpu_session, is_before_spark_330, is_before_spark_350, is_before_spark_400, is_databricks143_or_later
+from spark_session import with_cpu_session, is_before_spark_350, is_before_spark_400
 import pyspark.sql.functions as f
 from timezones import all_timezones, fixed_offset_timezones, fixed_offset_timezones_iana, variable_offset_timezones, variable_offset_timezones_iana
 
@@ -56,7 +56,6 @@ def test_timeadd(data_gen):
         lambda spark: unary_op_df(spark, TimestampGen(start=datetime(5, 1, 1, tzinfo=timezone.utc), end=datetime(15, 1, 1, tzinfo=timezone.utc)), seed=1)
             .selectExpr("a + (interval {} days {} seconds)".format(days, seconds)))
 
-@pytest.mark.skipif(is_before_spark_330(), reason='DayTimeInterval is not supported before Pyspark 3.3.0')
 @allow_non_gpu(*non_utc_allow)
 def test_timeadd_daytime_column():
     gen_list = [
@@ -69,7 +68,7 @@ def test_timeadd_daytime_column():
 
 @pytest.mark.skipif(is_before_spark_350(), reason='DayTimeInterval overflow check for seconds is not supported before Spark 3.5.0')
 def test_interval_seconds_overflow_exception():
-    err_message = 'outside range' if is_databricks143_or_later() else 'IllegalArgumentException'
+    err_message = 'outside range' if is_databricks_runtime() else 'IllegalArgumentException'
     assert_gpu_and_cpu_error(
         lambda spark : spark.sql(""" select cast("interval '10 01:02:69' day to second" as interval day to second) """).collect(),
         conf={},
@@ -761,7 +760,7 @@ def test_formats_for_legacy_mode_other_formats_tz_rules():
          'spark.rapids.sql.incompatibleDateFormats.enabled': True})
 
 @disable_ansi_mode
-@allow_non_gpu('ProjectExec')
+@allow_non_gpu('ProjectExec', 'GetTimestamp')
 def test_to_timestamp_legacy_millisecond_format_fallback():
     conf = {
         'spark.sql.legacy.timeParserPolicy': 'LEGACY',
