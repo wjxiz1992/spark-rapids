@@ -17,7 +17,7 @@ from pyspark.sql import Row
 from asserts import assert_gpu_fallback_collect, assert_gpu_and_cpu_are_equal_collect, \
     assert_cpu_and_gpu_are_equal_collect_with_capture
 from data_gen import *
-from delta_lake_utils import delta_meta_allow, setup_delta_dest_table, deletion_vector_values_with_350DB143_xfail_reasons
+from delta_lake_utils import delta_meta_allow, setup_delta_dest_table, deletion_vector_values_with_xfail_reasons
 from marks import allow_non_gpu, delta_lake, ignore_order
 from parquet_test import reader_opt_confs_no_native
 from parquet_test_utils import parquet_row_group_midpoints
@@ -459,7 +459,7 @@ if is_spark_340_or_later() or is_databricks_runtime():
 @ignore_order(local=True)
 @pytest.mark.parametrize("reader_confs", reader_opt_confs_no_native, ids=idfn)
 @pytest.mark.parametrize("mapping", column_mappings, ids=idfn)
-@pytest.mark.parametrize("enable_deletion_vectors", deletion_vector_values_with_350DB143_xfail_reasons(
+@pytest.mark.parametrize("enable_deletion_vectors", deletion_vector_values_with_xfail_reasons(
                             enabled_xfail_reason='https://github.com/NVIDIA/spark-rapids/issues/12042'), ids=idfn)
 def test_delta_read_column_mapping(spark_tmp_path, reader_confs, mapping, enable_deletion_vectors):
     data_path = spark_tmp_path + "/DELTA_DATA"
@@ -492,7 +492,7 @@ def test_delta_read_column_mapping(spark_tmp_path, reader_confs, mapping, enable
     reason="Delta Lake 4.0.0 incompatible with Spark 4.0.1 - ParquetToSparkSchemaConverter API changed")
 @pytest.mark.skipif(not (is_databricks_runtime() or is_spark_340_or_later()), \
                     reason="ParquetToSparkSchemaConverter changes not compatible with Delta Lake")
-@pytest.mark.parametrize("enable_deletion_vectors", deletion_vector_values_with_350DB143_xfail_reasons(
+@pytest.mark.parametrize("enable_deletion_vectors", deletion_vector_values_with_xfail_reasons(
                             enabled_xfail_reason='https://github.com/NVIDIA/spark-rapids/issues/12042'), ids=idfn)
 def test_delta_name_column_mapping_no_field_ids(spark_tmp_path, enable_deletion_vectors):
     data_path = spark_tmp_path + "/DELTA_DATA"
@@ -693,8 +693,11 @@ def test_delta_deletion_vector_interleaved_file_splits(
         f"b={b_size}, max_split={max_split}")
 
     a_tail_start = a_size - a_tail
-    a_midpoints = parquet_row_group_midpoints(a_path)
-    b_midpoints = parquet_row_group_midpoints(b_path)
+    a_midpoints, b_midpoints = with_cpu_session(
+        lambda spark: (
+            parquet_row_group_midpoints(spark, a_path),
+            parquet_row_group_midpoints(spark, b_path),
+        ))
     assert any(a_tail_start <= midpoint < a_size for midpoint in a_midpoints), (
         f"A tail split [{a_tail_start}, {a_size}) has no row-group midpoint; "
         f"midpoints={a_midpoints}")
@@ -888,9 +891,6 @@ def test_delta_filter_out_metadata_col(spark_tmp_path, dv_predicate_pushdown):
         assert_gpu_and_cpu_are_equal_collect(read_table, conf=conf)
 
 
-_delta_meta_allow_without_filter = [c for c in delta_meta_allow if c != "FilterExec"]
-
-
 def _test_delta_dv_filter_after_native_scan(spark_tmp_path, cpu_bridge_enabled):
     data_path = spark_tmp_path + "/DELTA_DATA"
     conf = {
@@ -963,7 +963,12 @@ def test_delta_dv_cpu_filter_after_native_scan(spark_tmp_path):
     _test_delta_dv_filter_after_native_scan(spark_tmp_path, cpu_bridge_enabled=False)
 
 
-@allow_non_gpu("In", "InSet", "ColumnarToRowExec", *_delta_meta_allow_without_filter)
+# This covers the CPU bridge path: the filter expression runs on the CPU while
+# GpuFilterExec remains in the plan. FilterExec still has to be allowed because
+# Delta metadata queries run on the CPU by default, and their plans include
+# FilterExec. Even when a Delta metadata query runs on the GPU, its filter
+# expression is not bridge-compatible because it is nondeterministic.
+@allow_non_gpu("FilterExec", "In", "InSet", "ColumnarToRowExec", *delta_meta_allow)
 @delta_lake
 @ignore_order(local=True)
 @pytest.mark.skipif(not supports_delta_lake_deletion_vectors(),

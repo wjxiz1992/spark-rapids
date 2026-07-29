@@ -31,7 +31,34 @@ CUDA_CLASSIFIER=${CUDA_CLASSIFIER:-'cuda12'}
 CLASSIFIER=${CLASSIFIER:-"$CUDA_CLASSIFIER"} # default as CUDA_CLASSIFIER for compatibility
 MVN_SETTINGS=${MVN_SETTINGS:-"jenkins/settings.xml"}
 MVN=${MVN:-"mvn -s $MVN_SETTINGS -Dmaven.wagon.http.retryHandler.count=3"}
-MVN_BUILD_ARGS="-Drat.skip=true -Dmaven.scaladoc.skip -Dmaven.scalastyle.skip=true -Dcuda.version=$CLASSIFIER"
+# Jenkins enables this when the PR title contains [fast-ut]. Keep local/manual runs serial by default.
+PARALLEL_UT=${PARALLEL_UT:-false}
+PARALLEL_UT_FORK_COUNT=${PARALLEL_UT_FORK_COUNT:-}
+
+if [[ "$PARALLEL_UT" != "true" && "$PARALLEL_UT" != "false" ]]; then
+    >&2 echo "ERROR: PARALLEL_UT must be true or false"
+    exit 1
+fi
+
+if [[ -n "$PARALLEL_UT_FORK_COUNT" &&
+      ! "$PARALLEL_UT_FORK_COUNT" =~ ^([2-9]|[1-9][0-9]+)$ ]]; then
+    >&2 echo "ERROR: PARALLEL_UT_FORK_COUNT must be an integer greater than 1"
+    exit 1
+fi
+
+MVN_PARALLEL_UT_ARGS=""
+if [[ "$PARALLEL_UT" == "true" ]]; then
+    MVN_PARALLEL_UT_ARGS="-Drapids.parallelUnitTests=true"
+    if [[ -n "$PARALLEL_UT_FORK_COUNT" ]]; then
+        MVN_PARALLEL_UT_ARGS+=" -DparallelForkCount=$PARALLEL_UT_FORK_COUNT"
+    fi
+fi
+
+MVN_BUILD_ARGS="-Drat.skip=true -Dmaven.scaladoc.skip -Dmaven.scalastyle.skip=true \
+  -Dcuda.version=$CLASSIFIER $MVN_PARALLEL_UT_ARGS"
+
+echo "Parallel unit tests: enabled=$PARALLEL_UT, \
+forks=${PARALLEL_UT_FORK_COUNT:-Maven default}"
 
 mvn_verify() {
     echo "Run mvn verify..."
@@ -88,7 +115,8 @@ mvn_verify() {
 
     # Here run Python integration tests tagged with 'premerge_ci_1' only, that would help balance test duration and memory
     # consumption from two k8s pods running in parallel, which executes 'mvn_verify()' and 'ci_2()' respectively.
-    $MVN -B $MVN_URM_MIRROR $PREMERGE_PROFILES clean verify -Dpytest.TEST_TAGS="premerge_ci_1" \
+    $MVN -B $MVN_URM_MIRROR $PREMERGE_PROFILES clean verify $MVN_PARALLEL_UT_ARGS \
+        -Dpytest.TEST_TAGS="premerge_ci_1" \
         -Dpytest.TEST_TYPE="pre-commit" -Dcuda.version=$CLASSIFIER
 
     # The jacoco coverage should have been collected, but because of how the shade plugin
@@ -175,7 +203,11 @@ run_iceberg_version_detect_tests() {
     if [[ "$iceberg_spark_ver" == "4.1" ]]; then
         iceberg_versions="1.11.0"
     elif [[ "$iceberg_spark_ver" == "4.0" ]]; then
-        iceberg_versions="1.10.1"
+        if [[ "$spark_patch_ver" -ge 2 ]]; then
+            iceberg_versions="1.10.1 1.11.0"
+        else
+            iceberg_versions="1.10.1"
+        fi
     elif [[ "$spark_patch_ver" -le 3 ]]; then
         iceberg_versions="1.6.1"
     else
