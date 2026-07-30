@@ -19,13 +19,14 @@
 spark-rapids-shim-json-lines ***/
 package org.apache.spark.sql.rapids.suites
 
+import test.org.apache.spark.sql.connector.JavaPartitionAwareDataSource
+
 import org.apache.spark.sql.Row
 import org.apache.spark.sql.connector.{DataSourceV2Suite, PartitionAwareDataSource}
 import org.apache.spark.sql.execution.exchange.ShuffleExchangeLike
 import org.apache.spark.sql.functions.{col, count, sum}
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.rapids.utils.RapidsSQLTestsTrait
-import test.org.apache.spark.sql.connector.JavaPartitionAwareDataSource
 
 class RapidsDataSourceV2Suite extends DataSourceV2Suite with RapidsSQLTestsTrait {
 
