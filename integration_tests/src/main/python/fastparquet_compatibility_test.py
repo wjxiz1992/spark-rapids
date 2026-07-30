@@ -12,13 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from typing import Callable
+
 import numpy as np
+import pandas as pd
 import pytest
+from pyspark.sql import DataFrame, SparkSession
 
 from asserts import assert_gpu_and_cpu_are_equal_collect
 from data_gen import *
 from fastparquet_utils import get_fastparquet_result_canonicalizer
-from spark_session import is_databricks_runtime, spark_version, with_cpu_session, with_gpu_session
+from spark_session import spark_version, with_cpu_session, with_gpu_session
 
 
 def fastparquet_unavailable():
@@ -33,7 +37,8 @@ def fastparquet_unavailable():
         return True
 
 
-def pandas_to_spark_preserving_nan(spark, pandas_df):
+def pandas_to_spark_preserving_nan(
+        spark: SparkSession, pandas_df: pd.DataFrame) -> DataFrame:
     """Create a Spark DataFrame without treating non-nullable floating-point NaNs as nulls.
 
     Databricks converts NaNs to nulls when it converts a pandas DataFrame directly.
@@ -53,16 +58,24 @@ def pandas_to_spark_preserving_nan(spark, pandas_df):
     return spark.createDataFrame(rows, schema=schema)
 
 
-def needs_nan_preserving_conversion(data_gen):
-    """Whether data_gen contains NaN-capable floats and cannot contain nulls."""
-    if data_gen.nullable:
-        return False
-    if isinstance(data_gen, (FloatGen, DoubleGen)):
-        return True
+def _is_fully_non_nullable(data_gen: DataGen) -> bool:
+    """Whether data_gen and every nested struct field are non-nullable."""
     if isinstance(data_gen, StructGen):
-        return (all(not child.nullable for _, child in data_gen.children) and
-                any(needs_nan_preserving_conversion(child) for _, child in data_gen.children))
-    return False
+        return (not data_gen.nullable and
+                all(_is_fully_non_nullable(child) for _, child in data_gen.children))
+    return not data_gen.nullable
+
+
+def _contains_nan_capable_float(data_gen: DataGen) -> bool:
+    """Whether data_gen contains a FloatGen or DoubleGen at any depth."""
+    return (isinstance(data_gen, (FloatGen, DoubleGen)) or
+            (isinstance(data_gen, StructGen) and
+             any(_contains_nan_capable_float(child) for _, child in data_gen.children)))
+
+
+def needs_nan_preserving_conversion(data_gen: DataGen) -> bool:
+    """Whether data_gen is fully non-nullable and contains a NaN-capable float."""
+    return _is_fully_non_nullable(data_gen) and _contains_nan_capable_float(data_gen)
 
 
 rebase_write_corrected_conf = {
@@ -104,17 +117,22 @@ def delete_local_directory(local_path):
             print("Could not clean up local files in {}".format(local_path))
 
 
-def read_parquet(data_path, local_data_path, preserve_nans=False):
+def read_parquet(
+        data_path: str,
+        local_data_path: str,
+        preserve_nans: bool = False) -> Callable[[SparkSession], DataFrame]:
     """
     (Fetches a function that) Reads Parquet from the specified `data_path`.
     If the plugin is enabled, the read is done via Spark APIs, through the plugin.
     If the plugin is disabled, the data is copied to local_data_path, and read via `fastparquet`.
     :param data_path: Location of the (single) Parquet input file.
     :param local_data_path: Location of the Parquet input, on the local filesystem.
+    :param preserve_nans: Use schema-backed row conversion for fully non-nullable,
+        NaN-capable data so the CPU/reference path preserves floating-point NaNs.
     :return: A function that reads Parquet, via the plugin or `fastparquet`.
     """
 
-    def read_with_fastparquet_or_plugin(spark):
+    def read_with_fastparquet_or_plugin(spark: SparkSession) -> DataFrame:
         import fastparquet
         plugin_enabled = spark.conf.get("spark.rapids.sql.enabled", "false") == "true"
         if plugin_enabled:
