@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2025, NVIDIA CORPORATION.
+ * Copyright (c) 2023-2026, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -82,9 +82,10 @@ case class GpuJsonTuple(children: Seq[Expression]) extends GpuGenerator
 
         var validPathsIndex = 0
         withResource(new Array[ColumnVector](fieldInstructions.length)) { validPathColumns =>
-          // Last argument -1 indicates to use automatically calculated parallelism
+          // A parallel override of -1 uses automatically calculated parallelism.
           withResource(JSONUtils.getJsonObjectMultiplePaths(
-              json, validPaths, 4 * targetBatchSize, -1)) { chunkedResult =>
+              json, validPaths, 4 * targetBatchSize, -1,
+              JSONUtils.NamedFieldMatchPolicy.LAST_NON_NULL)) { chunkedResult =>
               chunkedResult.foreach { cr =>
                 validPathColumns(validPathsIndex) = cr.incRefCount()
                 validPathsIndex += 1
