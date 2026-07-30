@@ -174,6 +174,10 @@ class RapidsTestSettings extends BackendTestSettings {
   enableSuite[RapidsDataFrameImplicitsSuite]
   enableSuite[RapidsDatasetOptimizationSuite]
   enableSuite[RapidsDataFrameWriterV2Suite]
+  enableSuite[RapidsUserDefinedTypeSuite]
+  enableSuite[RapidsDeprecatedAPISuite]
+  enableSuite[RapidsDeprecatedDatasetAggregatorSuite]
+  enableSuite[RapidsStatisticsCollectionSuite]
   enableSuite[RapidsFileSourceStrategySuite]
     .exclude("partitioned table - after scan filters", ADJUST_UT("Replaced by testRapids version that checks GpuFilterExec residual filters."))
     .exclude("[SPARK-16818] partition pruned file scans implement sameResult correctly", KNOWN_ISSUE("https://github.com/NVIDIA/cudf-spark/issues/15161"))
