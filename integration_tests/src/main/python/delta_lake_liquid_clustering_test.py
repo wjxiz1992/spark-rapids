@@ -143,11 +143,17 @@ def setup_clustered_table_sql(spark, path, table_name, view_name,
 
 
 @allow_non_gpu(*delta_meta_allow, "CreateTableExec")
+@allow_non_gpu_conditional(is_databricks173_or_later(),
+                           f"{delta_write_fallback_allow},AtomicReplaceTableAsSelectExec,"
+                           "AppendDataExecV1")
+@allow_non_gpu_delta_write_if(
+    is_databricks173_or_later(),
+    reason="DBR 17.3 plans Delta liquid RTAS through V2 AtomicReplaceTableAsSelectExec")
 @delta_lake
 @ignore_order
 @pytest.mark.skipif(not is_spark_353_or_later(),
                     reason="RTAS with cluster by is only supported on delta 3.3+")
-@pytest.mark.skipif(is_spark_356_or_later(),
+@pytest.mark.skipif(is_spark_356_or_later() and not is_spark_400_or_later(),
                     reason="https://github.com/delta-io/delta/issues/4671")
 def test_delta_rtas_sql_liquid_clustering(spark_tmp_path, spark_tmp_table_factory):
     def write_func(spark, path):
