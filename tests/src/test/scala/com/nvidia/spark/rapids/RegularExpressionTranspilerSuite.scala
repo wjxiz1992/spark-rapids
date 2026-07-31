@@ -146,11 +146,56 @@ class RegularExpressionTranspilerSuite extends AnyFunSuite {
   }
 
   test("cuDF does not support possessive quantifier") {
-    val patterns = Seq("a*+", "a|(a?|a*+)")
-    patterns.foreach(pattern =>
+    val patterns = Seq(
+      "a*+" -> "*+",
+      "a++" -> "++",
+      "a?+" -> "?+",
+      "a{2}+" -> "{2}+",
+      "a{2,}+" -> "{2,}+",
+      "a{2,3}+" -> "{2,3}+",
+      "a|(a?|a*+)" -> "*+")
+    patterns.foreach { case (pattern, quantifier) =>
       assertUnsupported(pattern, RegexFindMode,
-        "Possessive quantifier *+ not supported")
-    )
+        s"Possessive quantifier $quantifier not supported")
+    }
+  }
+
+  test("cuDF repetition count limit") {
+    Seq("a{1000}", "a{1000}?", "a{1000,}?", "a{1,1000}?").foreach { pattern =>
+      assertUnsupported(pattern, RegexFindMode,
+        "cuDF does not support repetition counts greater than 999")
+    }
+
+    assertCpuGpuMatchesRegexpFind(
+      Seq("a{999}?"),
+      Seq("", "a" * 998, "a" * 999, "a" * 1000))
+  }
+
+  test("stacked quantifiers are unsupported") {
+    Seq("a*{2,}", "a{2}{3}", "a{2}?{3}").foreach { pattern =>
+      assertUnsupported(pattern, RegexFindMode,
+        "Preceding token cannot be quantified")
+    }
+  }
+
+  test("issue-14738: bounded reluctant quantifiers") {
+    val issuePattern = "((aa|bb){0,3}?).*cc"
+    val transpiledExtract = transpile(issuePattern, groupIndex = 1)
+    assert(transpiledExtract.contains("{0,3}?"))
+
+    assertCpuGpuMatchesRegexpFind(
+      Seq("a{2}?", "a{2,}?", "a{2,3}?"),
+      Seq("", "a", "aa", "aaa", "baaa"))
+    assertCpuGpuMatchesRegexpReplace(
+      Seq("A{1,3}?"),
+      Seq("", "A", "AA", "AAAA", "BAAAB"))
+    doStringSplitTest(
+      Set("o{1,2}?"),
+      Seq("", "o", "oo", "boo:and:foo", "fooo"),
+      limit = -1)
+
+    assertUnsupported("o{0,2}?", RegexSplitMode,
+      "regexp_split on GPU does not support empty match repetition consistently with Spark")
   }
 
   test("cuDF does not support \\z") {
@@ -1475,20 +1520,12 @@ class FuzzRegExp(suggestedChars: String, skipKnownIssues: Boolean = true,
   }
 
   private def repetition(depth: Int) = {
-    val generators = Seq(
-      () =>
-        // greedy quantifier
-        RegexRepetition(generate(depth + 1), quantifier),
-      () =>
-        // reluctant quantifier
-        RegexRepetition(RegexRepetition(generate(depth + 1), quantifier),
-          SimpleQuantifier('?')),
-      () =>
-        // possessive quantifier
-        RegexRepetition(RegexRepetition(generate(depth + 1), quantifier),
-          SimpleQuantifier('+'))
-    )
-    generators(rr.nextInt(generators.length))()
+    val modes = Seq[RegexQuantifier.Mode](
+      RegexQuantifier.Greedy,
+      RegexQuantifier.Reluctant,
+      RegexQuantifier.Possessive)
+    val mode = modes(rr.nextInt(modes.length))
+    RegexRepetition(generate(depth + 1), quantifier.withMode(mode))
   }
 
   private def quantifier: RegexQuantifier = {

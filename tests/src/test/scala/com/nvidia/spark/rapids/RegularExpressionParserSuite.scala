@@ -53,18 +53,38 @@ class RegularExpressionParserSuite extends AnyFunSuite {
       RegexRepetition(RegexChar('a'), QuantifierFixedLength(1)))))
   }
 
+  test("issue-14738: bounded reluctant quantifiers have semantic modes") {
+    val cases = Seq(
+      "a{2}?" -> QuantifierFixedLength(2, RegexQuantifier.Reluctant),
+      "a{2,}?" -> QuantifierVariableLength(2, None, RegexQuantifier.Reluctant),
+      "a{2,3}?" -> QuantifierVariableLength(2, Some(3), RegexQuantifier.Reluctant),
+      "a{0,3}?" -> QuantifierVariableLength(0, Some(3), RegexQuantifier.Reluctant))
+
+    cases.foreach { case (pattern, quantifier) =>
+      val ast = RegexSequence(ListBuffer(RegexRepetition(RegexChar('a'), quantifier)))
+      assert(parse(pattern) === ast)
+      assert(ast.toRegexString === pattern)
+    }
+  }
+
   test("not a quantifier") {
     assert(parse("{1}") ===
       RegexSequence(ListBuffer(
         RegexChar('{'), RegexChar('1'),RegexEscaped('}'))))
   }
 
-  test("nested repetition") {
+  test("possessive repetition has a semantic mode") {
     assert(parse("a*+") ===
       RegexSequence(ListBuffer(
-        RegexRepetition(
-          RegexRepetition(RegexChar('a'), SimpleQuantifier('*')),
-            SimpleQuantifier('+')))))
+        RegexRepetition(RegexChar('a'),
+          SimpleQuantifier('*', RegexQuantifier.Possessive)))))
+  }
+
+  test("stacked quantifiers are unsupported") {
+    Seq("a*{2,}", "a{2}{3}", "a{2}?{3}").foreach { pattern =>
+      val e = intercept[RegexUnsupportedException] { parse(pattern) }
+      assert(e.getMessage.startsWith("Preceding token cannot be quantified"))
+    }
   }
 
   test("choice") {

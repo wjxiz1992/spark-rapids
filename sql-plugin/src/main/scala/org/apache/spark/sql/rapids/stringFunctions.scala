@@ -1205,12 +1205,7 @@ object GpuRegExpUtils {
   def isEmptyRepetition(pattern: String): Boolean = {
     def isASTEmptyRepetition(regex: RegexAST): Boolean = {
       regex match {
-        case RegexRepetition(_, term) => term match {
-          case SimpleQuantifier('*') | SimpleQuantifier('?') => true
-          case QuantifierFixedLength(0) => true
-          case QuantifierVariableLength(0, _) => true
-          case _ => false
-        }
+        case RegexRepetition(_, quantifier) => quantifier.minLength == 0
         case RegexGroup(_, term) =>
           isASTEmptyRepetition(term)
         case RegexSequence(parts) =>
