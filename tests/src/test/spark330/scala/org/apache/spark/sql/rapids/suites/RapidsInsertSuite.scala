@@ -32,7 +32,7 @@ class RapidsInsertSuite extends InsertSuite with RapidsSQLTestsTrait {
     val messages = new StringBuilder
     var current = error
     while (current != null) {
-      messages.append(Option(current.getMessage).getOrElse(""))
+      messages.append(current.toString)
       messages.append('\n')
       current = current.getCause
     }
