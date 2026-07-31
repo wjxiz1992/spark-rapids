@@ -59,6 +59,9 @@ class RapidsFileDataSourceV2FallBackSuite
             val inputData = spark.range(10)
             inputData.write.format(format).save(path.getCanonicalPath)
             sparkContext.listenerBus.waitUntilEmpty()
+            assert(
+              exceptions.isEmpty,
+              s"Unexpected QueryExecutionListener failures: ${exceptions.mkString(", ")}")
             assert(commands.length == 1)
             assert(commands.head._1 == "command")
             assert(commands.head._2.isInstanceOf[InsertIntoHadoopFsRelationCommand])
