@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2025, NVIDIA CORPORATION.
+ * Copyright (c) 2023-2026, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,6 +17,7 @@
 package com.nvidia.spark.rapids
 
 import java.io.File
+import java.nio.charset.StandardCharsets.UTF_8
 
 import scala.collection.mutable.ListBuffer
 
@@ -27,7 +28,7 @@ import org.apache.hadoop.fs.Path
 import org.apache.orc.{OrcFile, StripeInformation}
 import org.apache.orc.impl.RecordReaderImpl
 
-import org.apache.spark.{SparkConf, SparkContext}
+import org.apache.spark.{SPARK_VERSION_SHORT, SparkConf, SparkContext}
 import org.apache.spark.sql.Row
 import org.apache.spark.sql.rapids.{ExecutionPlanCaptureCallback, MyDenseVector, MyDenseVectorUDT}
 import org.apache.spark.sql.rapids.shims.TrampolineConnectShims._
@@ -69,6 +70,33 @@ class OrcQuerySuite extends SparkQueryCompareTestSuite {
       } finally {
         fullyDelete(tempFile)
       }
+    }
+  }
+
+  Seq("orc", "").foreach { v1List =>
+    val sparkConf = new SparkConf().set("spark.sql.sources.useV1SourceList", v1List)
+    test(s"Write Spark version into ORC file metadata, source list is ($v1List)") {
+      withGpuSparkSession({ spark =>
+        withTempPath { path =>
+          ExecutionPlanCaptureCallback.startCapture()
+          spark.range(1).repartition(1).write.orc(path.getCanonicalPath)
+          val plans = ExecutionPlanCaptureCallback.getResultsWithTimeout()
+          assert(plans.nonEmpty, "Did not capture GPU write plan")
+          ExecutionPlanCaptureCallback.assertContains(plans(0), "GpuDataWritingCommandExec")
+
+          val partFiles = path.listFiles()
+            .filter(f => f.isFile && !f.getName.startsWith(".") && !f.getName.startsWith("_"))
+          assert(partFiles.length === 1)
+
+          val orcFilePath = new Path(partFiles.head.getAbsolutePath)
+          val readerOptions = OrcFile.readerOptions(new Configuration())
+          withResourceIfAllowed(OrcFile.createReader(orcFilePath, readerOptions)) { reader =>
+            val version = UTF_8.decode(
+              reader.getMetadataValue("org.apache.spark.version")).toString
+            assert(version === SPARK_VERSION_SHORT)
+          }
+        }
+      }, sparkConf)
     }
   }
 
