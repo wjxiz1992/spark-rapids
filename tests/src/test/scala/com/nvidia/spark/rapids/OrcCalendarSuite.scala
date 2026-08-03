@@ -18,9 +18,10 @@ package com.nvidia.spark.rapids
 
 import java.io.File
 import java.nio.file.{Files, StandardCopyOption}
-import java.time.LocalDate
+import java.time.{LocalDate, ZoneId}
 
-import com.nvidia.spark.rapids.Arm.withResourceIfAllowed
+import ai.rapids.cudf.{ColumnVector, Table}
+import com.nvidia.spark.rapids.Arm.{withResource, withResourceIfAllowed}
 import com.nvidia.spark.rapids.RapidsReaderType.RapidsReaderType
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.Path
@@ -132,6 +133,20 @@ class OrcCalendarSuite extends SparkQueryCompareTestSuite {
     assert(orcFiles.length === 1,
       s"expected one ORC data file in $base, found ${orcFiles.mkString(", ")}")
     orcFiles.head
+  }
+
+  test("proleptic nested ORC date rebase reuses the unchanged struct column") {
+    withGpuSparkSession { _ =>
+      withResource(ColumnVector.daysFromInts(0)) { dateColumn =>
+        withResource(ColumnVector.makeStruct(dateColumn)) { structColumn =>
+          withResource(GpuOrcTimezoneUtils.rebaseOrcDateTime(
+            new Table(structColumn), ZoneId.systemDefault(),
+            writerUsedProlepticGregorian = true)) { result =>
+            assert(result.getColumn(0) eq structColumn)
+          }
+        }
+      }
+    }
   }
 
   for {

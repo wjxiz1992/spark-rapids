@@ -141,16 +141,24 @@ object GpuOrcTimezoneUtils {
         col
       }
     } else if (dType == DType.STRUCT) {
+      var childChanged = false
       val newViews = (0 until col.getNumChildren).map { i =>
         val child = addToClose(col.getChildColumnView(i))
         val newChild = rebaseNestedWithWriterTimezone(
           child, tzCtx, writerUsedProlepticGregorian, toClose)
-        if (newChild ne child) addToClose(newChild)
+        if (newChild ne child) {
+          childChanged = true
+          addToClose(newChild)
+        }
         newChild
       }
-      val opNullCount = Optional.of(col.getNullCount.asInstanceOf[java.lang.Long])
-      new ColumnView(col.getType, col.getRowCount, opNullCount, col.getValid,
-        col.getOffsets, newViews.toArray)
+      if (childChanged) {
+        val opNullCount = Optional.of(col.getNullCount.asInstanceOf[java.lang.Long])
+        new ColumnView(col.getType, col.getRowCount, opNullCount, col.getValid,
+          col.getOffsets, newViews.toArray)
+      } else {
+        col
+      }
     } else {
       col
     }

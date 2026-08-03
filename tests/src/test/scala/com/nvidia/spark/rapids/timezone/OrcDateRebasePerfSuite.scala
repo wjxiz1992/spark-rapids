@@ -24,7 +24,8 @@ import com.nvidia.spark.rapids.{RapidsConf, RapidsReaderType, SparkQueryCompareT
 import com.nvidia.spark.rapids.Arm.withResourceIfAllowed
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.Path
-import org.apache.hadoop.hive.ql.exec.vector.{DateColumnVector, LongColumnVector}
+import org.apache.hadoop.hive.ql.exec.vector.{
+  DateColumnVector, LongColumnVector, StructColumnVector}
 import org.apache.orc.{CompressionKind, OrcFile, TypeDescription}
 import org.scalatest.BeforeAndAfterAll
 
@@ -81,6 +82,8 @@ class OrcDateRebasePerfSuite extends SparkQueryCompareTestSuite with BeforeAndAf
       .addField("id", TypeDescription.createLong())
       .addField("legacy_date", TypeDescription.createDate())
       .addField("modern_date", TypeDescription.createDate())
+      .addField("nested", TypeDescription.createStruct()
+        .addField("nested_date", TypeDescription.createDate()))
     val conf = new Configuration()
     val options = OrcFile.writerOptions(conf)
       .setSchema(schema)
@@ -93,11 +96,14 @@ class OrcDateRebasePerfSuite extends SparkQueryCompareTestSuite with BeforeAndAf
       val ids = batch.cols(0).asInstanceOf[LongColumnVector]
       val legacyDates = batch.cols(1).asInstanceOf[DateColumnVector]
       val modernDates = batch.cols(2).asInstanceOf[DateColumnVector]
+      val nestedDates = batch.cols(3).asInstanceOf[StructColumnVector]
+        .fields(0).asInstanceOf[DateColumnVector]
       var rowId = 0L
       while (rowId < numRows) {
         batch.reset()
         legacyDates.setUsingProlepticCalendar(true)
         modernDates.setUsingProlepticCalendar(true)
+        nestedDates.setUsingProlepticCalendar(true)
         val rowsInBatch = math.min(batch.getMaxSize.toLong, numRows - rowId).toInt
         var rowIndex = 0
         while (rowIndex < rowsInBatch) {
@@ -105,6 +111,7 @@ class OrcDateRebasePerfSuite extends SparkQueryCompareTestSuite with BeforeAndAf
           ids.vector(rowIndex) = currentId
           legacyDates.vector(rowIndex) = legacyStartDay + currentId % legacyDayCount
           modernDates.vector(rowIndex) = modernStartDay + currentId % modernDayCount
+          nestedDates.vector(rowIndex) = legacyStartDay + currentId % legacyDayCount
           rowIndex += 1
         }
         batch.size = rowsInBatch
@@ -212,7 +219,9 @@ class OrcDateRebasePerfSuite extends SparkQueryCompareTestSuite with BeforeAndAf
       PerfCase("legacy_file_modern_date", new Path(legacyFile.getCanonicalPath), "modern_date"),
       PerfCase("legacy_file_id_control", new Path(legacyFile.getCanonicalPath), "id"),
       PerfCase("proleptic_file_legacy_date_fast_path",
-        new Path(prolepticFile.getCanonicalPath), "legacy_date"))
+        new Path(prolepticFile.getCanonicalPath), "legacy_date"),
+      PerfCase("proleptic_file_nested_date_fast_path",
+        new Path(prolepticFile.getCanonicalPath), "nested.nested_date"))
 
     withGpuSparkSession(spark => cases.foreach(runCase(spark, _)), sparkConf())
   }
