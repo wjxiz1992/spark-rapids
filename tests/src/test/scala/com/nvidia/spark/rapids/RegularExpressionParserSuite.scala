@@ -53,6 +53,22 @@ class RegularExpressionParserSuite extends AnyFunSuite {
       RegexRepetition(RegexChar('a'), QuantifierFixedLength(1)))))
   }
 
+  test("issue-15495: quantifier integer boundaries") {
+    assert(new RegexParser("a{2147483647}").parseWithoutJavaValidation() ===
+      RegexSequence(ListBuffer(
+        RegexRepetition(RegexChar('a'), QuantifierFixedLength(Int.MaxValue)))))
+
+    Seq(
+      "a{2147483648}" -> 2,
+      "a{1,2147483648}" -> 4).foreach { case (pattern, index) =>
+      val e = intercept[RegexUnsupportedException] {
+        new RegexParser(pattern).parseWithoutJavaValidation()
+      }
+      assert(e.getMessage ===
+        s"Regex quantifier exceeds supported integer range near index $index")
+    }
+  }
+
   test("not a quantifier") {
     assert(parse("{1}") ===
       RegexSequence(ListBuffer(
