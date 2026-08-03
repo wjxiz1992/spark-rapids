@@ -21,9 +21,8 @@ from delta_lake_utils import delta_meta_allow, setup_delta_dest_table, deletion_
 from marks import allow_non_gpu, delta_lake, ignore_order
 from parquet_test import reader_opt_confs_no_native
 from parquet_test_utils import parquet_row_group_midpoints
-from spark_session import is_spark_411_or_later
 from spark_session import with_cpu_session, with_gpu_session, is_databricks_runtime, \
-    is_spark_320_or_later, is_spark_340_or_later, supports_delta_lake_deletion_vectors, is_spark_401_or_later, \
+    is_spark_320_or_later, is_spark_340_or_later, is_spark_40x, supports_delta_lake_deletion_vectors, is_spark_401_or_later, \
     is_before_spark_353, is_databricks173_or_later
 
 _conf = {'spark.rapids.sql.explain': 'ALL'}
@@ -824,7 +823,7 @@ def test_delta_scan_split_with_DV_disabled_with_DVs(spark_tmp_path, pushdown_dv_
                     reason="Deletion vector scan is not supported on Databricks")
 @pytest.mark.skipif(is_before_spark_353(),
                     reason="Spark-RAPIDS supports scan with deletion vectors starting in Spark 3.5.3")
-@pytest.mark.skipif(is_spark_401_or_later() and not is_spark_411_or_later(),
+@pytest.mark.skipif(is_spark_40x() and is_spark_401_or_later(),
                     reason="REORG requires Delta 4.1.0, available in "
                            "supported Spark 4.1.1+ profiles "
                            "(https://github.com/delta-io/delta/issues/5690)")
