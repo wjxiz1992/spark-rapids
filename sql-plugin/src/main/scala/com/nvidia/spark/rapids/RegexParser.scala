@@ -173,7 +173,7 @@ class RegexParser(pattern: String) {
         }
         val quantifier = base.withMode(mode)
         // Point diagnostics at the modifier when present, otherwise at the base quantifier.
-        quantifier.position = Some(pos - 1)
+        quantifier.position = Some(if (mode == Greedy) start else pos - 1)
         Some(quantifier)
       case None =>
         pos = start
@@ -1647,7 +1647,7 @@ class CudfRegexTranspiler(mode: RegexMode) {
 
                   case (_, QuantifierFixedLength(0, _)) =>
                     throw new RegexUnsupportedException(
-                      "Reptition with {0} not supported in capture groups",
+                      "Repetition with {0} not supported in capture groups",
                       quantifier.position)
                   case _ =>
                 }

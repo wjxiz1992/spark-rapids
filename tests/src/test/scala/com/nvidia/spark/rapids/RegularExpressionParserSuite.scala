@@ -67,6 +67,20 @@ class RegularExpressionParserSuite extends AnyFunSuite {
     }
   }
 
+  test("quantifier diagnostics point at the base or mode modifier") {
+    val cases = Seq(
+      "a*" -> 1,
+      "a*?" -> 2,
+      "a{2,3}" -> 1,
+      "a{2,3}?" -> 6)
+
+    cases.foreach { case (pattern, expectedPosition) =>
+      val RegexSequence(parts) = parse(pattern)
+      val RegexRepetition(_, quantifier) = parts.head
+      assert(quantifier.position.contains(expectedPosition), pattern)
+    }
+  }
+
   test("not a quantifier") {
     assert(parse("{1}") ===
       RegexSequence(ListBuffer(
