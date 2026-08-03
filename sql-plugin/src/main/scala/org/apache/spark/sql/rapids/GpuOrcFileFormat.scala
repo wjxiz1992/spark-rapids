@@ -108,6 +108,7 @@ object GpuOrcFileFormat extends Logging {
     val sqlConf = spark.sessionState.conf
 
     val parameters = CaseInsensitiveMap(options)
+    val hadoopConf = spark.sessionState.newHadoopConfWithOptions(options)
 
     case class ConfDataForTagging(orcConf: OrcConf, defaultValue: Any, message: String)
 
@@ -139,15 +140,34 @@ object GpuOrcFileFormat extends Logging {
       BLOCK_PADDING.ordinal() ->
         ConfDataForTagging(BLOCK_PADDING, true, "Block padding isn't supported"))
 
+    val unsupportedOrcWriterConfs = Set(
+      DICTIONARY_KEY_SIZE_THRESHOLD,
+      DIRECT_ENCODING_COLUMNS)
+
+    def configuredValue(name: String): Option[String] = {
+      parameters.get(name).orElse(Option(hadoopConf.getRaw(name)))
+    }
+
     OrcConf.values().foreach(conf => {
       if (supportedConf.contains(conf.ordinal())) {
         tagIfOrcOrHiveConfNotSupported(supportedConf(conf.ordinal()))
       } else {
-        if ((conf.getHiveConfName != null && parameters.contains(conf.getHiveConfName))
-              || parameters.contains(conf.getAttribute)) {
-          // these configurations are implementation specific and don't apply to cudf
-          // The user has set them so we can't run on GPU
-          logInfo(s"${conf.name()} is unsupported configuration")
+        val configuredName = Seq(conf.getAttribute, conf.getHiveConfName)
+          .flatMap(Option(_))
+          .find { name =>
+            configuredValue(name).exists { value =>
+              conf != DIRECT_ENCODING_COLUMNS || value.trim.nonEmpty
+            }
+          }
+        configuredName.foreach { name =>
+          if (unsupportedOrcWriterConfs.contains(conf)) {
+            meta.willNotWorkOnGpu(
+              s"ORC writer option $name is not supported on GPU because the GPU writer " +
+                "cannot honor explicit dictionary thresholds or per-column direct encoding")
+          } else {
+            // these configurations are implementation specific and don't apply to cudf
+            logInfo(s"${conf.name()} is unsupported configuration")
+          }
         }
       }
     })

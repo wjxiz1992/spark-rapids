@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2025, NVIDIA CORPORATION.
+ * Copyright (c) 2023-2026, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,7 +24,7 @@ import com.nvidia.spark.rapids.Arm.{withResource, withResourceIfAllowed}
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.FileUtil.fullyDelete
 import org.apache.hadoop.fs.Path
-import org.apache.orc.{OrcFile, StripeInformation}
+import org.apache.orc.{OrcConf, OrcFile, StripeInformation}
 import org.apache.orc.impl.RecordReaderImpl
 
 import org.apache.spark.{SparkConf, SparkContext}
@@ -69,6 +69,69 @@ class OrcQuerySuite extends SparkQueryCompareTestSuite {
       } finally {
         fullyDelete(tempFile)
       }
+    }
+  }
+
+  private val unsupportedOrcEncodingOptions = Seq(
+    OrcConf.DICTIONARY_KEY_SIZE_THRESHOLD.getAttribute -> "1.0",
+    OrcConf.DICTIONARY_KEY_SIZE_THRESHOLD.getHiveConfName -> "1.0",
+    OrcConf.DIRECT_ENCODING_COLUMNS.getAttribute -> "value")
+
+  Seq("orc" -> "ORC in V1 source list", "" -> "empty V1 source list").foreach {
+    case (v1List, sourceListDescription) =>
+    unsupportedOrcEncodingOptions.foreach { case (optionName, optionValue) =>
+      val sparkConf = new SparkConf().set("spark.sql.sources.useV1SourceList", v1List)
+      testGpuWriteFallback(
+        s"ORC write falls back for per-write option $optionName, $sourceListDescription",
+        "DataWritingCommandExec",
+        spark => spark.range(10).selectExpr("CAST(id AS STRING) AS value"),
+        execsAllowedNonGpu = Seq(
+          "DataWritingCommandExec", "WriteFilesExec", "ShuffleExchangeExec"),
+        conf = sparkConf
+      ) { frame =>
+        withTempPath { outputPath =>
+          frame.write.mode("overwrite")
+            .option(optionName, optionValue)
+            .orc(outputPath.getCanonicalPath)
+        }
+      }
+
+      testGpuWriteFallback(
+        s"ORC write falls back for Hadoop configuration $optionName, " +
+          sourceListDescription,
+        "DataWritingCommandExec",
+        spark => {
+          spark.sparkContext.hadoopConfiguration.set(optionName, optionValue)
+          spark.range(10).selectExpr("CAST(id AS STRING) AS value")
+        },
+        execsAllowedNonGpu = Seq(
+          "DataWritingCommandExec", "WriteFilesExec", "ShuffleExchangeExec"),
+        conf = sparkConf
+      ) { frame =>
+        try {
+          withTempPath { outputPath =>
+            frame.write.mode("overwrite").orc(outputPath.getCanonicalPath)
+          }
+        } finally {
+          frame.sparkSession.sparkContext.hadoopConfiguration.unset(optionName)
+        }
+      }
+    }
+
+    test(s"ORC write stays on GPU for empty direct-encoding columns, " +
+        sourceListDescription) {
+      val sparkConf = new SparkConf().set("spark.sql.sources.useV1SourceList", v1List)
+      withGpuSparkSession({ spark =>
+        withTempPath { outputPath =>
+          ExecutionPlanCaptureCallback.startCapture()
+          spark.range(10).write.mode("overwrite")
+            .option(OrcConf.DIRECT_ENCODING_COLUMNS.getAttribute, "")
+            .orc(outputPath.getCanonicalPath)
+          val plans = ExecutionPlanCaptureCallback.getResultsWithTimeout()
+          assert(plans.nonEmpty, "Did not capture GPU write plan")
+          ExecutionPlanCaptureCallback.assertContains(plans(0), "GpuDataWritingCommandExec")
+        }
+      }, sparkConf)
     }
   }
 
