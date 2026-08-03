@@ -19,8 +19,37 @@
 spark-rapids-shim-json-lines ***/
 package org.apache.spark.sql.rapids.suites
 
+import java.nio.file.Files
+
 import org.apache.spark.sql.rapids.utils.RapidsSQLTestsTrait
 import org.apache.spark.sql.sources.CreateTableAsSelectSuite
+import org.apache.spark.util.Utils
+import org.scalatest.Ignore
 
 class RapidsCreateTableAsSelectSuite
-    extends CreateTableAsSelectSuite with RapidsSQLTestsTrait
+    extends CreateTableAsSelectSuite with RapidsSQLTestsTrait {
+
+  private val writePermissionTest =
+    "CREATE TABLE USING AS SELECT based on the file without write permission"
+
+  private lazy val enforcesWritePermissions: Boolean = {
+    val probeDir = Utils.createTempDir()
+    try {
+      probeDir.setWritable(false) && !Files.isWritable(probeDir.toPath)
+    } finally {
+      probeDir.setWritable(true)
+      Utils.deleteRecursively(probeDir)
+    }
+  }
+
+  override def tags: Map[String, Set[String]] = {
+    if (enforcesWritePermissions) {
+      super.tags
+    } else {
+      val inheritedTags = super.tags
+      inheritedTags.updated(
+        writePermissionTest,
+        inheritedTags.getOrElse(writePermissionTest, Set.empty) + classOf[Ignore].getName)
+    }
+  }
+}
