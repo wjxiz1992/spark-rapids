@@ -21,10 +21,11 @@ package org.apache.spark.sql.rapids.suites
 
 import java.nio.file.Files
 
+import org.scalatest.Ignore
+
 import org.apache.spark.sql.rapids.utils.RapidsSQLTestsTrait
 import org.apache.spark.sql.sources.CreateTableAsSelectSuite
 import org.apache.spark.util.Utils
-import org.scalatest.Ignore
 
 class RapidsCreateTableAsSelectSuite
     extends CreateTableAsSelectSuite with RapidsSQLTestsTrait {
