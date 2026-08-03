@@ -854,9 +854,8 @@ def test_delta_scan_split_with_DV_disabled_with_DVs(spark_tmp_path, pushdown_dv_
 @pytest.mark.skipif(is_before_spark_353(),
                     reason="Spark-RAPIDS supports scan with deletion vectors starting in Spark 3.5.3")
 @pytest.mark.skipif(is_spark_40x() and is_spark_401_or_later(),
-                    reason="REORG requires Delta 4.1.0, available in "
-                           "supported Spark 4.1.1+ profiles "
-                           "(https://github.com/delta-io/delta/issues/5690)")
+                    reason="Delta 4.0.0 REORG is incompatible with Spark 4.0.1+ in Spark 4.0.x "
+                           "profiles (https://github.com/delta-io/delta/issues/5690)")
 def test_delta_scan_split_with_DV_enabled_after_DVs_materialized(spark_tmp_path):
     def do_delete_and_reorg(spark, data_path):
         num_deleted = spark.sql(f"DELETE FROM delta.`{data_path}` WHERE a = 0").collect()[0][0]
