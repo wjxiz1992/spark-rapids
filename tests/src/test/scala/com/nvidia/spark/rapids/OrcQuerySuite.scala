@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2025, NVIDIA CORPORATION.
+ * Copyright (c) 2023-2026, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -88,6 +88,35 @@ class OrcQuerySuite extends SparkQueryCompareTestSuite {
     }
   ) {
     frame => frame
+  }
+
+  Seq("orc", "").foreach { v1List =>
+    val sparkConf = new SparkConf().set("spark.sql.sources.useV1SourceList", v1List)
+    testSparkReadResultsAreEqual(
+      s"SPARK-36663 read numeric-only ORC field names, source list is ($v1List)",
+      (file: File) => (spark: SparkSession) => spark.read.orc(file.getCanonicalPath),
+      (spark: SparkSession, file: File) => {
+        spark.sql(
+          """
+            |SELECT
+            |  'a' AS `1`,
+            |  named_struct('20', 'b', '30', named_struct('40', 'c')) AS `50`,
+            |  array(named_struct('123', 'd')) AS `789`,
+            |  map('key', named_struct('456', 'e')) AS `012`
+          """.stripMargin)
+          .coalesce(1)
+          .write
+          .orc(file.getCanonicalPath)
+      },
+      conf = sparkConf,
+      existClasses = if (v1List == "orc") "GpuFileSourceScanExec" else "GpuBatchScan") { frame =>
+      frame.selectExpr(
+        "`1`",
+        "`50`.`20`",
+        "`50`.`30`.`40`",
+        "`789`[0].`123`",
+        "`012`['key'].`456`")
+    }
   }
 
   /**
