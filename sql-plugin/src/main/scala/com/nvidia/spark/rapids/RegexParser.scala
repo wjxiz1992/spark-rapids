@@ -370,35 +370,23 @@ class RegexParser(pattern: String) {
   private def tryParseBraceQuantifier(): Option[RegexQuantifier] = {
     // Assumes that '{' has already been consumed. The caller restores its position
     // when this is a literal brace rather than a quantifier.
-    consumeInt match {
-      case Some(minLength) =>
-        peek() match {
-          case Some(',') =>
-            consumeExpected(',')
-            val max = consumeInt()
-            if (peek().contains('}')) {
-              consumeExpected('}')
-              max match {
-                case None =>
-                  Some(QuantifierVariableLength(minLength, None))
-                case Some(m) =>
-                  if (m >= minLength) {
-                    Some(QuantifierVariableLength(minLength, max))
-                  } else {
-                    None
-                  }
-              }
-            } else {
-              None
-            }
-          case Some('}') =>
+    consumeInt.flatMap { minLength =>
+      peek() match {
+        case Some(',') =>
+          consumeExpected(',')
+          val maxLength = consumeInt()
+          if (peek().contains('}') && maxLength.forall(_ >= minLength)) {
             consumeExpected('}')
-            Some(QuantifierFixedLength(minLength))
-          case _ =>
+            Some(QuantifierVariableLength(minLength, maxLength))
+          } else {
             None
-        }
-      case None =>
-        None
+          }
+        case Some('}') =>
+          consumeExpected('}')
+          Some(QuantifierFixedLength(minLength))
+        case _ =>
+          None
+      }
     }
   }
 
@@ -1482,30 +1470,14 @@ class CudfRegexTranspiler(mode: RegexMode) {
                 s"cuDF does not support repetition of group containing: " +
                   s"${unsupportedTerm.toRegexString}", term.position)
           }
-        case (RegexGroup(groupType, term), QuantifierVariableLength(n, _, _))
+        case (RegexGroup(groupType, term),
+            QuantifierVariableLength(_, _, _) | QuantifierFixedLength(_, _))
             if !isSupportedRepetitionBase(term) =>
           term match {
             // \Z is not supported in groups
             case RegexEscaped('A') |
-              RegexSequence(ListBuffer(RegexEscaped('A'))) if n > 0 =>
-              // (\A){1,} can be transpiled to (\A) (dropping the repetition)
-              // we use rewrite(...) here to handle logic regarding modes
-              // (\A is not supported in RegexSplitMode)
-              RegexGroup(groupType, rewrite(term, replacement, previous, flags))
-            // NOTE: (\A)* can be transpiled to (\A)?
-            // however, (\A)? is not supported in libcudf yet
-            case _ =>
-              val unsupportedTerm = getUnsupportedRepetitionBase(term)
-              throw new RegexUnsupportedException(
-                s"cuDF does not support repetition of group containing: " +
-                  s"${unsupportedTerm.toRegexString}", term.position)
-          }
-        case (RegexGroup(groupType, term), QuantifierFixedLength(n, _))
-            if !isSupportedRepetitionBase(term) =>
-          term match {
-            // \Z is not supported in groups
-            case RegexEscaped('A') |
-              RegexSequence(ListBuffer(RegexEscaped('A'))) if n > 0 =>
+                RegexSequence(ListBuffer(RegexEscaped('A')))
+                if quantifier.minLength > 0 =>
               // (\A){1,} can be transpiled to (\A) (dropping the repetition)
               // we use rewrite(...) here to handle logic regarding modes
               // (\A is not supported in RegexSplitMode)

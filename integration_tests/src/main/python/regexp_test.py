@@ -664,16 +664,6 @@ def test_regexp_extract():
                 'regexp_extract(a, "^([a-d]*)([0-9]*)(\\\\/[a-d]*)$", 3)'),
         conf=_regexp_conf)
 
-    issue_14738_gen = StringGen('[abc]{0,8}') \
-        .with_special_case('aaaaaacc') \
-        .with_special_case('bbbbcc') \
-        .with_special_case('cc') \
-        .with_special_case('aabbcc')
-    assert_gpu_and_cpu_are_equal_collect(
-        lambda spark: unary_op_df(spark, issue_14738_gen).selectExpr(
-            'regexp_extract(a, "((aa|bb){0,3}?).*cc", 1)'),
-        conf=_regexp_conf)
-
     capture_group_gen = mk_str_gen('[abcd]{1,2}')
     assert_gpu_and_cpu_are_equal_collect(
             lambda spark: unary_op_df(spark, capture_group_gen).selectExpr(
@@ -1414,4 +1404,15 @@ def test_lazy_quantifier():
             'a', r'REGEXP_EXTRACT(a, "(\".??\")")',
             r'REGEXP_EXTRACT(a, "(\".+?\")")',
             r'REGEXP_EXTRACT(a, "(\".*?\")")'),
+        conf=_regexp_conf)
+
+    bounded_reluctant_gen = StringGen('[abc]{0,8}') \
+        .with_special_case('aaaaaacc') \
+        .with_special_case('bbbbcc') \
+        .with_special_case('cc') \
+        .with_special_case('aabbcc')
+    assert_gpu_and_cpu_are_equal_collect(
+        lambda spark: unary_op_df(spark, bounded_reluctant_gen).selectExpr(
+            'regexp_extract(a, "((aa|bb){0,3}?).*cc", 0)',
+            'regexp_extract(a, "((aa|bb){0,3}?).*cc", 1)'),
         conf=_regexp_conf)
