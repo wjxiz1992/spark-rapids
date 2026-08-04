@@ -490,7 +490,7 @@ def test_regexp_replace_oversized_quantifier():
             ["aaaa", pattern], "string").toDF("a").select(
                 regexp_replace(col("a"), pattern, "replacement")).collect(),
         conf=_regexp_conf,
-        error_message=re.compile("Illegal repetition"))
+        error_message=re.compile(r"Illegal repetition|INVALID_PARAMETER_VALUE\.PATTERN"))
 
 
 # https://github.com/NVIDIA/spark-rapids/issues/14742
