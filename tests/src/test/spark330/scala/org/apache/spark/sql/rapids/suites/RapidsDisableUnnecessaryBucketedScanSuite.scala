@@ -19,7 +19,7 @@
 spark-rapids-shim-json-lines ***/
 package org.apache.spark.sql.rapids.suites
 
-import org.apache.spark.sql.Row
+import org.apache.spark.sql.{DataFrame, Row}
 import org.apache.spark.sql.catalyst.expressions.AttributeReference
 import org.apache.spark.sql.catalyst.plans.physical.HashPartitioning
 import org.apache.spark.sql.execution.FileSourceScanExec
@@ -49,9 +49,9 @@ private[suites] trait RapidsDisableUnnecessaryBucketedScanTests {
       expectedNumScanWithAutoScanEnabled: Int,
       expectedNumScanWithAutoScanDisabled: Int): Unit = {
 
-    def checkNumBucketedScan(expectedNumBucketedScans: Int): Unit = {
-      val plan = sql(query).queryExecution.executedPlan
-      val bucketedScans = collect(plan) {
+    def checkNumBucketedScan(df: DataFrame, expectedNumBucketedScans: Int): Unit = {
+      val plan = df.queryExecution.executedPlan
+      val bucketedScans = plan.collect {
         case scan: GpuFileSourceScanExec if scan.bucketedScan => scan
         case scan: FileSourceScanExec if scan.bucketedScan => scan
       }
@@ -61,12 +61,14 @@ private[suites] trait RapidsDisableUnnecessaryBucketedScanTests {
     }
 
     withSQLConf(SQLConf.AUTO_BUCKETED_SCAN_ENABLED.key -> "true") {
-      checkNumBucketedScan(expectedNumScanWithAutoScanEnabled)
-      val result = sql(query).collect()
+      val autoScanEnabledQuery = sql(query)
+      checkNumBucketedScan(autoScanEnabledQuery, expectedNumScanWithAutoScanEnabled)
+      val result = autoScanEnabledQuery.collect()
 
       withSQLConf(SQLConf.AUTO_BUCKETED_SCAN_ENABLED.key -> "false") {
-        checkNumBucketedScan(expectedNumScanWithAutoScanDisabled)
-        checkAnswer(sql(query), result)
+        val autoScanDisabledQuery = sql(query)
+        checkNumBucketedScan(autoScanDisabledQuery, expectedNumScanWithAutoScanDisabled)
+        checkAnswer(autoScanDisabledQuery, result)
       }
     }
   }
