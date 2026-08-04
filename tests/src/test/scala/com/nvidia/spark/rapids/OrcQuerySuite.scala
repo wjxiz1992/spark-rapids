@@ -100,20 +100,23 @@ class OrcQuerySuite extends SparkQueryCompareTestSuite {
         s"ORC write falls back for Hadoop configuration $optionName, " +
           sourceListDescription,
         "DataWritingCommandExec",
-        spark => {
-          spark.sparkContext.hadoopConfiguration.set(optionName, optionValue)
-          spark.range(10).selectExpr("CAST(id AS STRING) AS value")
-        },
+        spark => spark.range(10).selectExpr("CAST(id AS STRING) AS value"),
         execsAllowedNonGpu = Seq(
           "DataWritingCommandExec", "WriteFilesExec", "ShuffleExchangeExec"),
         conf = sparkConf
       ) { frame =>
+        val hadoopConf = frame.sparkSession.sparkContext.hadoopConfiguration
+        val previousValue = Option(hadoopConf.getRaw(optionName))
         try {
+          hadoopConf.set(optionName, optionValue)
           withTempPath { outputPath =>
             frame.write.mode("overwrite").orc(outputPath.getCanonicalPath)
           }
         } finally {
-          frame.sparkSession.sparkContext.hadoopConfiguration.unset(optionName)
+          previousValue match {
+            case Some(value) => hadoopConf.set(optionName, value)
+            case None => hadoopConf.unset(optionName)
+          }
         }
       }
     }
