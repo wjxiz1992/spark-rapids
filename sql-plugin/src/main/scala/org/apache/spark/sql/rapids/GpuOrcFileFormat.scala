@@ -72,14 +72,6 @@ object GpuOrcFileFormat extends Logging {
           "\"orc.key.provider\" and \"orc.encrypt\" and \"orc.mask\"")
     }
 
-    // Check if bloom filter is enabled. If yes, then disable GPU.
-    // Refer to https://orc.apache.org/docs/spark-config.html for the description of ORC configs.
-    val bloomFilterColumns = options.getOrElse("orc.bloom.filter.columns", "")
-    if (bloomFilterColumns.nonEmpty) {
-      meta.willNotWorkOnGpu("Bloom filter write for ORC is not yet supported on GPU. " +
-        "If bloom filter is not required, unset \"orc.bloom.filter.columns\"")
-    }
-
     val hasBools = schema.exists { field =>
       TrampolineUtil.dataTypeExistsRecursively(field.dataType, t =>
         t.isInstanceOf[BooleanType])
@@ -142,10 +134,11 @@ object GpuOrcFileFormat extends Logging {
 
     val unsupportedOrcWriterConfs = Set(
       DICTIONARY_KEY_SIZE_THRESHOLD,
-      DIRECT_ENCODING_COLUMNS)
+      DIRECT_ENCODING_COLUMNS,
+      BLOOM_FILTER_COLUMNS)
 
     def configuredValue(name: String): Option[String] = {
-      parameters.get(name).orElse(Option(hadoopConf.getRaw(name)))
+      Option(hadoopConf.get(name))
     }
 
     OrcConf.values().foreach(conf => {
@@ -156,14 +149,19 @@ object GpuOrcFileFormat extends Logging {
           .flatMap(Option(_))
           .find { name =>
             configuredValue(name).exists { value =>
-              conf != DIRECT_ENCODING_COLUMNS || value.trim.nonEmpty
+              conf match {
+                case DIRECT_ENCODING_COLUMNS => value.trim.nonEmpty
+                case BLOOM_FILTER_COLUMNS => value.nonEmpty
+                case _ => true
+              }
             }
           }
         configuredName.foreach { name =>
           if (unsupportedOrcWriterConfs.contains(conf)) {
             meta.willNotWorkOnGpu(
               s"ORC writer option $name is not supported on GPU because the GPU writer " +
-                "cannot honor explicit dictionary thresholds or per-column direct encoding")
+                "cannot honor explicit dictionary thresholds, per-column direct encoding, " +
+                "or Bloom filters")
           } else {
             // these configurations are implementation specific and don't apply to cudf
             logInfo(s"${conf.name()} is unsupported configuration")
