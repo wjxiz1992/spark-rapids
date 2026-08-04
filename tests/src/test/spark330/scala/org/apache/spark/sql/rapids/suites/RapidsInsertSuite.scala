@@ -72,6 +72,7 @@ class RapidsInsertSuite extends InsertSuite with RapidsSQLTestsTrait {
   }
 
   testRapids("Stop task set if FileAlreadyExistsException was thrown") {
+    val fastFailMessage = "can not write to output file:"
     Seq(true, false).foreach { fastFail =>
       withSQLConf(
         "fs.file.impl" -> classOf[FileExistingTestFileSystem].getName,
@@ -84,6 +85,7 @@ class RapidsInsertSuite extends InsertSuite with RapidsSQLTestsTrait {
               .write.mode("overwrite").format("parquet").insertInto("t")
           }
           assert(exceptionMessages(error).contains("FileAlreadyExistsException"))
+          assert(exceptionMessages(error).contains(fastFailMessage) === fastFail)
         }
       }
     }
