@@ -18,6 +18,7 @@ package com.nvidia.spark.rapids
 import java.util.regex.PatternSyntaxException
 
 import scala.collection.mutable.ListBuffer
+import scala.util.Random
 
 import org.scalatest.funsuite.AnyFunSuite
 
@@ -53,16 +54,30 @@ class RegularExpressionParserSuite extends AnyFunSuite {
       RegexRepetition(RegexChar('a'), QuantifierFixedLength(1)))))
   }
 
-  test("issue-15495: quantifier integer boundaries") {
-    assert(new RegexParser("a{2147483647}").parseWithoutJavaValidation() ===
-      RegexSequence(ListBuffer(
-        RegexRepetition(RegexChar('a'), QuantifierFixedLength(Int.MaxValue)))))
+  // Regression test for https://github.com/NVIDIA/cudf-spark/issues/15495
+  test("quantifier integer boundaries") {
+    val supportedBoundaries: Seq[(String, RegexQuantifier)] = Seq(
+      s"a{${Int.MaxValue}}" -> QuantifierFixedLength(Int.MaxValue),
+      s"a{${Int.MaxValue},}" -> QuantifierVariableLength(Int.MaxValue, None),
+      s"a{1,${Int.MaxValue}}" -> QuantifierVariableLength(1, Some(Int.MaxValue)))
+    supportedBoundaries.foreach { case (pattern, quantifier) =>
+      assert(new RegexParser(pattern).parseUnchecked() ===
+        RegexSequence(ListBuffer(RegexRepetition(RegexChar('a'), quantifier))))
+    }
 
-    Seq(
-      "a{2147483648}" -> 2,
-      "a{1,2147483648}" -> 4).foreach { case (pattern, index) =>
+    val firstUnsupported = (Int.MaxValue.toLong + 1).toString
+    val random = new Random(15495L)
+    val seededOversized = Seq.fill(8) {
+      (random.nextInt(9) + 1).toString + Seq.fill(31)(random.nextInt(10)).mkString
+    }
+    (firstUnsupported +: seededOversized).flatMap { count =>
+      Seq(
+        s"a{$count}" -> 2,
+        s"a{$count,}" -> 2,
+        s"a{1,$count}" -> 4)
+    }.foreach { case (pattern, index) =>
       val e = intercept[RegexUnsupportedException] {
-        new RegexParser(pattern).parseWithoutJavaValidation()
+        new RegexParser(pattern).parseUnchecked()
       }
       assert(e.getMessage ===
         s"Regex quantifier exceeds supported integer range near index $index")

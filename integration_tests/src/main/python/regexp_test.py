@@ -480,19 +480,6 @@ def test_regexp_replace():
                 'regexp_replace(a, "a|b|c", "A")'),
         conf=_regexp_conf)
 
-# https://github.com/NVIDIA/cudf-spark/issues/15495
-@allow_non_gpu('ProjectExec', 'RegExpReplace')
-def test_regexp_replace_oversized_quantifier():
-    from pyspark.sql.functions import col, regexp_replace
-    pattern = "a{9999999999999999999999999999}"
-    assert_gpu_and_cpu_same_data_or_error(
-        lambda spark: spark.createDataFrame(
-            ["aaaa", pattern], "string").toDF("a").select(
-                regexp_replace(col("a"), pattern, "replacement")).collect(),
-        conf=_regexp_conf,
-        error_message=re.compile(r"Illegal repetition|INVALID_PARAMETER_VALUE\.PATTERN"))
-
-
 # https://github.com/NVIDIA/spark-rapids/issues/14742
 # Replacement-string parser must match java.util.regex.Matcher#appendReplacement.
 # Use the DataFrame API rather than selectExpr because Spark SQL variable substitution

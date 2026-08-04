@@ -57,10 +57,11 @@ class RegexParser(pattern: String) {
     // Validate if the pattern is compatible with Java, as this would throw an error otherwise
     Pattern.compile(pattern)
 
-    parseWithoutJavaValidation()
+    parseUnchecked()
   }
 
-  private[rapids] def parseWithoutJavaValidation(): RegexAST = {
+  // Package-visible so tests can exercise parser-only behavior without host-JDK validation.
+  private[rapids] def parseUnchecked(): RegexAST = {
     val ast = parseUntil(() => eof())
     if (!eof()) {
       throw new RegexUnsupportedException("Failed to parse full regex. Last character parsed was",
