@@ -493,7 +493,7 @@ class RapidsTestSettings extends BackendTestSettings {
   enableSuite[RapidsFilteredScanSuite]
     .excludeByPrefix(
       "PushDown Returns ",
-      ADJUST_UT(
+      KNOWN_ISSUE(
         "The Spark helper directly executes the CPU RowDataSourceScanExec instead of the " +
           "query-level plan. See https://github.com/NVIDIA/cudf-spark/issues/15566. " +
           "Recovery trigger: add query-level RAPIDS coverage for equivalent pushdown and " +
@@ -501,7 +501,7 @@ class RapidsTestSettings extends BackendTestSettings {
   enableSuite[RapidsPrunedScanSuite]
     .excludeByPrefix(
       "Columns output ",
-      ADJUST_UT(
+      KNOWN_ISSUE(
         "The Spark helper directly executes the CPU RowDataSourceScanExec instead of the " +
           "query-level plan. See https://github.com/NVIDIA/cudf-spark/issues/15567. " +
           "Recovery trigger: add query-level RAPIDS coverage for equivalent column-pruning " +
