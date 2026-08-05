@@ -1829,23 +1829,21 @@ def test_spark_from_json_timestamp_default_format():
 # The spark test only sets the timezone as an ID one, but we really just care that we fallback when it is set to something we cannot support
 @pytest.mark.parametrize('zone_id', [
     "UTC",
-    "-08:00",
-    "+01:00",
-    "Africa/Dakar",
-    "America/Los_Angeles",
-    "Asia/Urumqi",
-    "Asia/Hong_Kong",
-    "Europe/Brussels"], ids=idfn)
-@allow_non_gpu('ProjectExec')
-# This is expected to fallback to the CPU because the timestampFormat is not supported, but really is, so we shold be better about this.
+    pytest.param("-08:00", marks=pytest.mark.allow_non_gpu('JsonToStructs')),
+    pytest.param("+01:00", marks=pytest.mark.allow_non_gpu('JsonToStructs')),
+    pytest.param("Africa/Dakar", marks=pytest.mark.allow_non_gpu('JsonToStructs')),
+    pytest.param("America/Los_Angeles", marks=pytest.mark.allow_non_gpu('JsonToStructs')),
+    pytest.param("Asia/Urumqi", marks=pytest.mark.allow_non_gpu('JsonToStructs')),
+    pytest.param("Asia/Hong_Kong", marks=pytest.mark.allow_non_gpu('JsonToStructs')),
+    pytest.param("Europe/Brussels", marks=pytest.mark.allow_non_gpu('JsonToStructs'))], ids=idfn)
+@allow_non_gpu_conditional(is_not_utc(), 'JsonToStructs')
 def test_spark_from_json_timestamp_format_option_zoneid(zone_id):
     schema = StructType([StructField("t", TimestampType())])
     data = [[r'''{"t": "2016-01-01T00:00:00"}''']]
     conf = copy_and_update(_enable_all_types_conf, {
-        'spark.rapids.sql.expression.cpuBridge.enabled': 'false'})
-    assert_gpu_fallback_collect(
+        "spark.rapids.sql.json.read.datetime.enabled": "true"})
+    assert_gpu_and_cpu_are_equal_collect(
         lambda spark : spark.createDataFrame(data, 'json STRING').select(f.col('json'), f.from_json(f.col('json'), schema, {'timestampFormat': "yyyy-MM-dd'T'HH:mm:ss",'timeZone': zone_id})),
-        'ProjectExec',
         conf=conf)
 
 @pytest.mark.parametrize('zone_id', [
