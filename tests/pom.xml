@@ -244,6 +244,23 @@
                 </dependency>
             </dependencies>
         </profile>
+        <profile>
+            <id>spark330-h2-test-dependency</id>
+            <activation>
+                <property>
+                    <name>buildver</name>
+                    <value>330</value>
+                </property>
+            </activation>
+            <dependencies>
+                <dependency>
+                    <groupId>com.h2database</groupId>
+                    <artifactId>h2</artifactId>
+                    <version>2.1.210</version>
+                    <scope>test</scope>
+                </dependency>
+            </dependencies>
+        </profile>
         <!-- #if scala-2.13 --><!--
         <profile>
             <id>release400</id>

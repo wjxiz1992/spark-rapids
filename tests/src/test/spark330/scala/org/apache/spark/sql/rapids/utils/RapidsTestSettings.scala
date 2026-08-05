@@ -488,5 +488,29 @@ class RapidsTestSettings extends BackendTestSettings {
     .exclude("SPARK-33084: Add jar support Ivy URI in SQL -- jar contains udf class", ADJUST_UT("Replaced by testRapids version that uses testFile() to access Spark test resources instead of getContextClassLoader"))
     .exclude("SPARK-33482: Fix FileScan canonicalization", ADJUST_UT("Replaced by testRapids version using V1 sources with AQE and broadcast disabled to assert ReusedExchangeExec directly"))
     .exclude("SPARK-36093: RemoveRedundantAliases should not change expression's name", ADJUST_UT("Replaced by testRapids version that checks the partition column name of the GpuInsertIntoHadoopFsRelationCommand"))
+  enableSuite[RapidsCTEInlineSuiteAEOff]
+  enableSuite[RapidsCTEInlineSuiteAEOn]
+  enableSuite[RapidsFilteredScanSuite]
+    .excludeByPrefix(
+      "PushDown Returns ",
+      ADJUST_UT(
+        "The Spark helper directly executes the CPU RowDataSourceScanExec instead of the " +
+          "query-level plan. See https://github.com/NVIDIA/cudf-spark/issues/15566. " +
+          "Recovery trigger: add query-level RAPIDS coverage for equivalent pushdown and " +
+          "column-pruning assertions; P2."))
+  enableSuite[RapidsPrunedScanSuite]
+    .excludeByPrefix(
+      "Columns output ",
+      ADJUST_UT(
+        "The Spark helper directly executes the CPU RowDataSourceScanExec instead of the " +
+          "query-level plan. See https://github.com/NVIDIA/cudf-spark/issues/15567. " +
+          "Recovery trigger: add query-level RAPIDS coverage for equivalent column-pruning " +
+          "assertions; P2."))
+  enableSuite[RapidsSupportsCatalogOptionsSuite]
+  enableSuite[RapidsLocalTempViewTestSuite]
+  enableSuite[RapidsGlobalTempViewTestSuite]
+  enableSuite[RapidsPersistedViewTestSuite]
+  enableSuite[RapidsRowDataSourceStrategySuite]
+  enableSuite[RapidsConfigBehaviorSuite]
 }
 // scalastyle:on line.size.limit
