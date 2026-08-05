@@ -128,6 +128,26 @@ class RegularExpressionParserSuite extends AnyFunSuite {
           ListBuffer(RegexChar('a'))), RegexEscaped(']'))))
   }
 
+  test("issue-15564: character class ranges beginning with ] or ^") {
+    val cases = Seq(
+      raw"[]-_]" -> RegexCharacterClass(negated = false,
+        ListBuffer(RegexCharacterRange(RegexChar(']'), RegexChar('_')))),
+      raw"[^]-_]" -> RegexCharacterClass(negated = true,
+        ListBuffer(RegexCharacterRange(RegexChar(']'), RegexChar('_')))),
+      raw"[^^-_]" -> RegexCharacterClass(negated = true,
+        ListBuffer(RegexCharacterRange(RegexChar('^'), RegexChar('_')))),
+      raw"[a^-_]" -> RegexCharacterClass(negated = false,
+        ListBuffer(RegexChar('a'), RegexCharacterRange(RegexChar('^'), RegexChar('_')))),
+      raw"[\^-_]" -> RegexCharacterClass(negated = false,
+        ListBuffer(RegexCharacterRange(RegexEscaped('^'), RegexChar('_')))))
+
+    cases.foreach { case (pattern, expected) =>
+      val ast = parse(pattern)
+      assert(ast === RegexSequence(ListBuffer(expected)))
+      assert(ast.toRegexString === pattern)
+    }
+  }
+
   test("escaped brackets") {
     assert(parse("\\[([A-Z]+)\\]") ===
       RegexSequence(ListBuffer(
