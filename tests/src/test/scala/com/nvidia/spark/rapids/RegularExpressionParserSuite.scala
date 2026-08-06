@@ -128,7 +128,8 @@ class RegularExpressionParserSuite extends AnyFunSuite {
           ListBuffer(RegexChar('a'))), RegexEscaped(']'))))
   }
 
-  test("issue-15564: character class ranges beginning with ] or ^") {
+  test("character class ranges beginning with ] or ^") {
+    // https://github.com/NVIDIA/cudf-spark/issues/15564
     val cases = Seq(
       raw"[]-_]" -> RegexCharacterClass(negated = false,
         ListBuffer(RegexCharacterRange(RegexChar(']'), RegexChar('_')))),
