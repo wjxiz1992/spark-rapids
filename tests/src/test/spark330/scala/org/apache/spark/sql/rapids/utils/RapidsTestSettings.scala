@@ -272,6 +272,10 @@ class RapidsTestSettings extends BackendTestSettings {
     .exclude("column pruning",
       ADJUST_UT("https://github.com/NVIDIA/cudf-spark/issues/15552. " +
         "Recovery trigger: add equivalent query-level RAPIDS coverage or a GPU-owned hook; P2."))
+    .exclude("column pruning - non-readable file",
+      ADJUST_UT("https://github.com/NVIDIA/cudf-spark/issues/15552. " +
+        "Recovery trigger: replace the chmod-based unreadability setup with filesystem-independent " +
+        "fault injection while preserving query-level count coverage; P2."))
   enableSuite[RapidsFileMetadataStructSuite]
   enableSuite[RapidsDisableUnnecessaryBucketedScanWithoutHiveSupportSuite]
     .exclude("SPARK-32859: disable unnecessary bucketed table scan - basic test",
