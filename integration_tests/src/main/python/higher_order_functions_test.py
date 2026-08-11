@@ -14,7 +14,8 @@
 
 import pytest
 
-from asserts import assert_gpu_and_cpu_are_equal_collect, assert_gpu_fallback_collect
+from asserts import (assert_cpu_and_gpu_are_equal_collect_with_capture,
+                     assert_gpu_and_cpu_are_equal_collect, assert_gpu_fallback_collect)
 from data_gen import *
 from marks import allow_non_gpu, allow_non_gpu_conditional, disable_ansi_mode, ignore_order
 from spark_session import is_before_spark_340, is_databricks_runtime
@@ -46,19 +47,23 @@ def test_tiered_project_with_complex_transform():
         '(acc, x) -> least(acc, CAST(x as BIGINT))', '9223372036854775807L'),
     (ArrayGen(FloatGen(
         no_nans=True,
-        special_cases=[FLOAT_MIN, FLOAT_MAX, 0.0, -0.0, float('nan')]), max_length=1),
+        special_cases=[FLOAT_MIN, FLOAT_MAX, 0.0, -0.0, float('nan')]),
+        min_length=1, max_length=1),
         '(acc, x) -> acc + x', 'CAST(0 AS FLOAT)'),
     (ArrayGen(FloatGen(
         no_nans=True,
-        special_cases=[FLOAT_MIN, FLOAT_MAX, 0.0, -0.0, float('nan')]), max_length=1),
+        special_cases=[FLOAT_MIN, FLOAT_MAX, 0.0, -0.0, float('nan')]),
+        min_length=1, max_length=1),
         '(acc, x) -> acc * x', 'CAST(1 AS FLOAT)'),
     (ArrayGen(DoubleGen(
         no_nans=True,
-        special_cases=[DOUBLE_MIN, DOUBLE_MAX, 0.0, -0.0, float('nan')]), max_length=1),
+        special_cases=[DOUBLE_MIN, DOUBLE_MAX, 0.0, -0.0, float('nan')]),
+        min_length=1, max_length=1),
         '(acc, x) -> acc + x', 'CAST(0 AS DOUBLE)'),
     (ArrayGen(DoubleGen(
         no_nans=True,
-        special_cases=[DOUBLE_MIN, DOUBLE_MAX, 0.0, -0.0, float('nan')]), max_length=1),
+        special_cases=[DOUBLE_MIN, DOUBLE_MAX, 0.0, -0.0, float('nan')]),
+        min_length=1, max_length=1),
         '(acc, x) -> acc * x', 'CAST(1 AS DOUBLE)'),
 ], ids=['sum', 'product', 'max', 'min',
         'float-sum-corners', 'float-product-corners',
@@ -68,8 +73,9 @@ def test_array_aggregate_numeric_ops(data_gen, lambda_sql, init_sql):
     def do_it(spark):
         return unary_op_df(spark, data_gen).selectExpr(
             f'aggregate(a, {init_sql}, {lambda_sql}) as res')
-    assert_gpu_and_cpu_are_equal_collect(
-        do_it, conf={'spark.rapids.sql.variableFloatAgg.enabled': 'true'})
+    assert_cpu_and_gpu_are_equal_collect_with_capture(
+        do_it, exist_classes='GpuArrayAggregate',
+        conf={'spark.rapids.sql.variableFloatAgg.enabled': 'true'})
 
 
 @pytest.mark.parametrize('gen, lambda_sql, init_sql', [
