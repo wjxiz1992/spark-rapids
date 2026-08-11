@@ -35,19 +35,41 @@ def test_tiered_project_with_complex_transform():
     assert_gpu_and_cpu_are_equal_collect(do_project, conf=confs)
 
 
-@pytest.mark.parametrize('lambda_sql, init_sql, gen_max', [
-    ('(acc, x) -> acc + CAST(x as BIGINT)', '0L', 100),
-    ('(acc, x) -> acc * CAST(x as BIGINT)', '1L', 3),
-    ('(acc, x) -> greatest(acc, CAST(x as BIGINT))', '-9223372036854775808L', 100),
-    ('(acc, x) -> least(acc, CAST(x as BIGINT))', '9223372036854775807L', 100),
-], ids=['sum', 'product', 'max', 'min'])
+@pytest.mark.parametrize('data_gen, lambda_sql, init_sql', [
+    (ArrayGen(IntegerGen(min_val=-100, max_val=100), max_length=8),
+        '(acc, x) -> acc + CAST(x as BIGINT)', '0L'),
+    (ArrayGen(IntegerGen(min_val=-3, max_val=3), max_length=8),
+        '(acc, x) -> acc * CAST(x as BIGINT)', '1L'),
+    (ArrayGen(IntegerGen(min_val=-100, max_val=100), max_length=8),
+        '(acc, x) -> greatest(acc, CAST(x as BIGINT))', '-9223372036854775808L'),
+    (ArrayGen(IntegerGen(min_val=-100, max_val=100), max_length=8),
+        '(acc, x) -> least(acc, CAST(x as BIGINT))', '9223372036854775807L'),
+    (ArrayGen(FloatGen(
+        no_nans=True,
+        special_cases=[FLOAT_MIN, FLOAT_MAX, 0.0, -0.0, float('nan')]), max_length=1),
+        '(acc, x) -> acc + x', 'CAST(0 AS FLOAT)'),
+    (ArrayGen(FloatGen(
+        no_nans=True,
+        special_cases=[FLOAT_MIN, FLOAT_MAX, 0.0, -0.0, float('nan')]), max_length=1),
+        '(acc, x) -> acc * x', 'CAST(1 AS FLOAT)'),
+    (ArrayGen(DoubleGen(
+        no_nans=True,
+        special_cases=[DOUBLE_MIN, DOUBLE_MAX, 0.0, -0.0, float('nan')]), max_length=1),
+        '(acc, x) -> acc + x', 'CAST(0 AS DOUBLE)'),
+    (ArrayGen(DoubleGen(
+        no_nans=True,
+        special_cases=[DOUBLE_MIN, DOUBLE_MAX, 0.0, -0.0, float('nan')]), max_length=1),
+        '(acc, x) -> acc * x', 'CAST(1 AS DOUBLE)'),
+], ids=['sum', 'product', 'max', 'min',
+        'float-sum-corners', 'float-product-corners',
+        'double-sum-corners', 'double-product-corners'])
 @disable_ansi_mode
-def test_array_aggregate_numeric_ops(lambda_sql, init_sql, gen_max):
-    gen = IntegerGen(min_val=-gen_max, max_val=gen_max)
+def test_array_aggregate_numeric_ops(data_gen, lambda_sql, init_sql):
     def do_it(spark):
-        return unary_op_df(spark, ArrayGen(gen, max_length=8)).selectExpr(
+        return unary_op_df(spark, data_gen).selectExpr(
             f'aggregate(a, {init_sql}, {lambda_sql}) as res')
-    assert_gpu_and_cpu_are_equal_collect(do_it)
+    assert_gpu_and_cpu_are_equal_collect(
+        do_it, conf={'spark.rapids.sql.variableFloatAgg.enabled': 'true'})
 
 
 @pytest.mark.parametrize('gen, lambda_sql, init_sql', [

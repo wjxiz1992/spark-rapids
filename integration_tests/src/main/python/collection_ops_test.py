@@ -167,7 +167,15 @@ _array_sort_gens = non_nested_array_gens
 
 # array_sort(arr) with the default comparator (ascending, nulls last) must run on GPU.
 # Capture the plan so a silent CPU fallback (which still matches results) fails the test.
-@pytest.mark.parametrize('data_gen', _array_sort_gens, ids=idfn)
+@pytest.mark.parametrize('data_gen', _array_sort_gens + [
+    ArrayGen(FloatGen(
+        no_nans=True,
+        special_cases=[FLOAT_MIN, FLOAT_MAX, 0.0, -0.0, float('nan')])),
+    ArrayGen(DoubleGen(
+        no_nans=True,
+        special_cases=[DOUBLE_MIN, DOUBLE_MAX, 0.0, -0.0, float('nan')])),
+    ArrayGen(StringGen(pattern='(| |hello|你好|🙂)')),
+], ids=idfn)
 def test_array_sort(data_gen):
     assert_cpu_and_gpu_are_equal_collect_with_capture(
         lambda spark: unary_op_df(spark, data_gen).select(f.array_sort(f.col('a'))),
