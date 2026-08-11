@@ -1367,7 +1367,13 @@ def check_bloom_filter_join(confs, expected_classes, is_multi_column, probe_gen=
     def do_join(spark):
         left = spark.range(100000)
         if probe_gen is not None:
-            corner_rows = unary_op_df(spark, probe_gen).select(col("a").alias("id"))
+            corner_values = list(probe_gen.list_of_special_cases)
+            if probe_gen.nullable:
+                corner_values.append(None)
+            corner_schema = StructType([
+                StructField("id", probe_gen.data_type, nullable=probe_gen.nullable)])
+            corner_rows = spark.createDataFrame(
+                [(value,) for value in corner_values], schema=corner_schema)
             left = left.unionByName(corner_rows)
         if is_multi_column:
             left = left.withColumn("second_id", col("id") % 5)
