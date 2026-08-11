@@ -45,6 +45,14 @@ def test_tiered_project_with_complex_transform():
         '(acc, x) -> greatest(acc, CAST(x as BIGINT))', '-9223372036854775808L'),
     (ArrayGen(IntegerGen(min_val=-100, max_val=100), max_length=8),
         '(acc, x) -> least(acc, CAST(x as BIGINT))', '9223372036854775807L'),
+    (ArrayGen(
+        ByteGen(special_cases=[BYTE_MIN, BYTE_MAX, 0, 1, -1]),
+        min_length=1, max_length=8),
+        '(acc, x) -> acc + x', 'CAST(0 AS TINYINT)'),
+    (ArrayGen(
+        ShortGen(special_cases=[SHORT_MIN, SHORT_MAX, 0, 1, -1]),
+        min_length=1, max_length=8),
+        '(acc, x) -> acc + x', 'CAST(0 AS SMALLINT)'),
     (ArrayGen(FloatGen(
         no_nans=True,
         special_cases=[FLOAT_MIN, FLOAT_MAX, 0.0, -0.0, float('nan')]),
@@ -65,7 +73,7 @@ def test_tiered_project_with_complex_transform():
         special_cases=[DOUBLE_MIN, DOUBLE_MAX, 0.0, -0.0, float('nan')]),
         min_length=1, max_length=1),
         '(acc, x) -> acc * x', 'CAST(1 AS DOUBLE)'),
-], ids=['sum', 'product', 'max', 'min',
+], ids=['sum', 'product', 'max', 'min', 'byte-sum-corners', 'short-sum-corners',
         'float-sum-corners', 'float-product-corners',
         'double-sum-corners', 'double-product-corners'])
 @disable_ansi_mode
