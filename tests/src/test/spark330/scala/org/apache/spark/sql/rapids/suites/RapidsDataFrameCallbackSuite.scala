@@ -44,11 +44,11 @@ class RapidsDataFrameCallbackSuite extends DataFrameCallbackSuite with RapidsSQL
 
       override def onSuccess(funcName: String, qe: QueryExecution, duration: Long): Unit = {
         val plan = stripAQEPlan(qe.executedPlan)
-        val outputRows = plan.collect {
+        val outputRows = plan.collectFirst {
           case node if node.metrics.contains("numOutputRows") =>
             node.metrics("numOutputRows").value
-        }
-        metrics += (if (outputRows.nonEmpty) outputRows.max else -1L)
+        }.getOrElse(fail(s"${plan.nodeName} has no numOutputRows metric"))
+        metrics += outputRows
       }
     }
     spark.listenerManager.register(listener)
@@ -59,10 +59,10 @@ class RapidsDataFrameCallbackSuite extends DataFrameCallbackSuite with RapidsSQL
       df.collect()
       sparkContext.listenerBus.waitUntilEmpty()
       df.collect()
-      Seq(1 -> "a", 2 -> "a").toDF("i", "j").groupBy("i").count().collect()
+      Seq(1 -> "a", 1 -> "b").toDF("i", "j").groupBy("i").count().collect()
 
       sparkContext.listenerBus.waitUntilEmpty()
-      assert(metrics === Seq(1L, 1L, 2L))
+      assert(metrics === Seq(1L, 1L, 1L))
     } finally {
       spark.listenerManager.unregister(listener)
     }
@@ -84,35 +84,42 @@ class RapidsDataFrameCallbackSuite extends DataFrameCallbackSuite with RapidsSQL
 
     try {
       withTempPath { path =>
+        val commandStart = commands.length
         spark.range(10).write.format("json").save(path.getCanonicalPath)
         sparkContext.listenerBus.waitUntilEmpty()
-        assert(commands.exists {
+        val operationCommands = commands.drop(commandStart)
+        assert(operationCommands.count {
           case ("command", cmd: InsertIntoHadoopFsRelationCommand) =>
             cmd.fileFormat.isInstanceOf[JsonFileFormat]
           case _ => false
-        })
+        } === 1)
       }
 
       withTable("tab") {
+        val commandStart = commands.length
         sql("CREATE TABLE tab(i long) using parquet")
         spark.range(10).write.insertInto("tab")
         sparkContext.listenerBus.waitUntilEmpty()
-        assert(commands.exists {
+        val operationCommands = commands.drop(commandStart)
+        assert(operationCommands.count {
           case ("command", cmd: InsertIntoHadoopFsRelationCommand) =>
             cmd.catalogTable.exists(_.identifier.identifier == "tab")
           case _ => false
-        })
+        } === 1)
       }
 
+      sparkContext.listenerBus.waitUntilEmpty()
       withTable("tab") {
+        val commandStart = commands.length
         spark.range(10).select($"id", $"id" % 5 as "p")
           .write.partitionBy("p").saveAsTable("tab")
         sparkContext.listenerBus.waitUntilEmpty()
-        assert(commands.exists {
+        val operationCommands = commands.drop(commandStart)
+        assert(operationCommands.count {
           case ("command", cmd: CreateDataSourceTableAsSelectCommand) =>
             cmd.table.partitionColumnNames == Seq("p")
           case _ => false
-        })
+        } === 1)
       }
 
       withTable("tab") {
@@ -122,7 +129,7 @@ class RapidsDataFrameCallbackSuite extends DataFrameCallbackSuite with RapidsSQL
           spark.range(10).selectExpr("illegalUdf(id)").write.insertInto("tab")
         }
         sparkContext.listenerBus.waitUntilEmpty()
-        assert(exceptions.contains("command" -> error))
+        assert(exceptions === Seq("command" -> error))
       }
     } finally {
       spark.listenerManager.unregister(listener)
