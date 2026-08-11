@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import struct
+
 import pytest
 
 from asserts import (assert_cpu_and_gpu_are_equal_collect_with_capture,
@@ -84,6 +86,37 @@ def test_array_aggregate_numeric_ops(data_gen, lambda_sql, init_sql):
     assert_cpu_and_gpu_are_equal_collect_with_capture(
         do_it, exist_classes='GpuArrayAggregate',
         conf={'spark.rapids.sql.variableFloatAgg.enabled': 'true'})
+
+
+@pytest.mark.parametrize('data_type, pack_format', [
+    ('float', '>f'),
+    ('double', '>d'),
+], ids=['float', 'double'])
+@disable_ansi_mode
+def test_array_sort_and_aggregate_signed_zero_bits(data_type, pack_format):
+    conf = {'spark.rapids.sql.variableFloatAgg.enabled': 'true'}
+
+    def do_it(spark):
+        return spark.createDataFrame(
+            [([-0.0, 0.0],)], f'a array<{data_type}>').selectExpr(
+                'array_sort(a) as sorted',
+                f'aggregate(a, CAST(1 AS {data_type}), (acc, x) -> acc * x) as product')
+
+    def canonicalize(cpu, gpu):
+        def to_raw_bits(rows):
+            return [
+                ([struct.pack(pack_format, value) for value in row.sorted],
+                 struct.pack(pack_format, row.product))
+                for row in rows
+            ]
+        return to_raw_bits(cpu), to_raw_bits(gpu)
+
+    # The shared float oracle treats signed zeros as equal. First require both GPU expressions,
+    # then compare the same deterministic results bit-for-bit in a second CPU/GPU run.
+    assert_cpu_and_gpu_are_equal_collect_with_capture(
+        do_it, exist_classes='GpuArraySort,GpuArrayAggregate', conf=conf)
+    assert_gpu_and_cpu_are_equal_collect(
+        do_it, conf=conf, result_canonicalize_func_before_compare=canonicalize)
 
 
 @pytest.mark.parametrize('gen, lambda_sql, init_sql', [
