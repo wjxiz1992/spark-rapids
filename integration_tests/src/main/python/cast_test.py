@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import math
+
 import pytest
 
 from asserts import *
@@ -160,7 +162,25 @@ def test_ansicast_corner_cases(data_gen, to_type):
     callback = spark_jvm().org.apache.spark.sql.rapids.ExecutionPlanCaptureCallback
     callback.assertContainsAnsiCast(cpu_df._jdf)
     callback.assertContainsAnsiCast(gpu_df._jdf)
+    gpu_plan = gpu_df._jdf.queryExecution().executedPlan()
+    callback.assertContains(gpu_plan, 'GpuProjectExec')
+    for cpu_cast_class in ('AnsiCast', 'Cast'):
+        assert not callback.didFallBack(gpu_plan, cpu_cast_class), \
+            f'GPU plan fell back to CPU {cpu_cast_class}:\n{gpu_plan}'
     assert_equal(from_cpu, from_gpu)
+
+    if isinstance(to_type, (FloatType, DoubleType)):
+        saw_negative_zero = False
+        for cpu_row, gpu_row in zip(from_cpu, from_gpu):
+            cpu_value = cpu_row['result']
+            gpu_value = gpu_row['result']
+            if cpu_value is not None and cpu_value == 0.0:
+                cpu_sign = math.copysign(1.0, cpu_value)
+                gpu_sign = math.copysign(1.0, gpu_value)
+                assert cpu_sign == gpu_sign, \
+                    f'GPU changed the sign of zero: CPU={cpu_value}, GPU={gpu_value}'
+                saw_negative_zero = saw_negative_zero or cpu_sign < 0
+        assert saw_negative_zero, 'Float corner data did not exercise negative zero'
 
 # These tests are not intended to be exhaustive. The scala test CastOpSuite should cover
 # just about everything for non-nested values. This is intended to check that the
