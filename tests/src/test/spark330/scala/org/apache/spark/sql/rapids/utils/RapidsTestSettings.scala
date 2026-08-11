@@ -178,17 +178,6 @@ class RapidsTestSettings extends BackendTestSettings {
   enableSuite[RapidsDeprecatedAPISuite]
   enableSuite[RapidsDeprecatedDatasetAggregatorSuite]
   enableSuite[RapidsStatisticsCollectionSuite]
-  enableSuite[RapidsPartitionBatchPruningSuite]
-    .exclude("disable IN_MEMORY_PARTITION_PRUNING",
-      ADJUST_UT("Replaced by a testRapids version that validates the query result and " +
-        "GpuInMemoryTableScanExec when pruning is disabled. Original contract: " +
-        "https://github.com/apache/spark/blob/v3.3.0/sql/core/src/test/scala/org/apache/" +
-        "spark/sql/execution/columnar/PartitionBatchPruningSuite.scala#L175-L187; P1."))
-    .excludeRapidsTest(
-      "SELECT _1 FROM pruningBinaryData WHERE _1 == binary(chr(1))",
-      KNOWN_ISSUE("https://github.com/NVIDIA/cudf-spark/issues/15613. Recovery trigger: " +
-        "binary cached columns can cross HostColumnarToGpu and decode from " +
-        "ParquetCachedBatchSerializer without a type-conversion failure; P0."))
   enableSuite[RapidsDataFrameCallbackSuite]
     .exclude("get numRows metrics by callback",
       ADJUST_UT("Replaced by a testRapids version that locates numOutputRows across the GPU " +
