@@ -84,6 +84,8 @@ def test_optimized_hive_ctas_basic(gens, storage, spark_tmp_table_factory):
         "spark.sql.legacy.parquet.datetimeRebaseModeInWrite": "CORRECTED",
         "spark.sql.legacy.parquet.int96RebaseModeInWrite": "CORRECTED"
     }
+    if storage.endswith("orc"):
+        conf["orc.proleptic.gregorian"] = "true"
     if storage == "nativeorc":
         conf["spark.sql.orc.impl"] = "native"
     elif storage == "hiveorc":

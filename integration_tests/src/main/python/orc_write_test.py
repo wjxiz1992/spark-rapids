@@ -101,7 +101,9 @@ def test_write_round_trip(spark_tmp_path, orc_gens, orc_impl):
             lambda spark, path: gen_df(spark, gen_list).coalesce(1).write.orc(path),
             lambda spark, path: spark.read.orc(path),
             data_path,
-            conf={'spark.sql.orc.impl': orc_impl, 'spark.rapids.sql.format.orc.write.enabled': True})
+            conf={'spark.sql.orc.impl': orc_impl,
+                  'spark.rapids.sql.format.orc.write.enabled': True,
+                  'orc.proleptic.gregorian': 'true'})
 
 # Only runs on Apache and Databricks, as PyArrow requires files to be stored on the local filesystem.
 @pytest.mark.parametrize('orc_gen', [int_gen], ids=idfn)
@@ -157,7 +159,8 @@ def test_write_round_trip_two_stripes(spark_tmp_path, orc_gens, orc_impl):
             lambda spark, path: spark.read.orc(path),
             data_path,
             conf={'spark.sql.orc.impl': orc_impl, 'spark.rapids.sql.format.orc.write.enabled': True,
-                  'spark.rapids.sql.test.orc.write.stripeSizeRows': stripe_size_rows})
+                  'spark.rapids.sql.test.orc.write.stripeSizeRows': stripe_size_rows,
+                  'orc.proleptic.gregorian': 'true'})
 
 @pytest.mark.parametrize('orc_gens', [bool_gen], ids=idfn)
 @pytest.mark.parametrize('orc_impl', ["native", "hive"])
@@ -242,7 +245,8 @@ def test_part_write_round_trip(spark_tmp_path, orc_gen):
             lambda spark, path: gen_df(spark, gen_list).coalesce(1).write.partitionBy('a').orc(path),
             lambda spark, path: spark.read.orc(path),
             data_path,
-            conf = {'spark.rapids.sql.format.orc.write.enabled': True})
+            conf = {'spark.rapids.sql.format.orc.write.enabled': True,
+                    'orc.proleptic.gregorian': 'true'})
 
 
 @ignore_order(local=True)
@@ -293,7 +297,8 @@ def test_write_save_table_orc(spark_tmp_path, orc_gens, orc_impl, spark_tmp_tabl
     data_path = spark_tmp_path + '/ORC_DATA'
     all_confs={'spark.sql.sources.useV1SourceList': "orc",
                'spark.rapids.sql.format.orc.write.enabled': True,
-               "spark.sql.orc.impl": orc_impl}
+               "spark.sql.orc.impl": orc_impl,
+               'orc.proleptic.gregorian': 'true'}
     assert_gpu_and_cpu_writes_are_equal_collect(
             lambda spark, path: gen_df(spark, gen_list).coalesce(1).write.format("orc").mode('overwrite').option("path", path).saveAsTable(spark_tmp_table_factory.get()),
             lambda spark, path: spark.read.orc(path),
@@ -432,7 +437,8 @@ def test_write_empty_orc_round_trip(spark_tmp_path, orc_gens):
         create_empty_df,
         lambda spark, path: spark.read.orc(path),
         data_path,
-        conf={'spark.rapids.sql.format.orc.write.enabled': True})
+        conf={'spark.rapids.sql.format.orc.write.enabled': True,
+              'orc.proleptic.gregorian': 'true'})
 
 
 hold_gpu_configs = [True, False]

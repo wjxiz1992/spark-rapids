@@ -57,8 +57,11 @@ def test_write_hive_bucketed_table(spark_tmp_table_factory, file_format):
 
     cpu_table = spark_tmp_table_factory.get()
     gpu_table = spark_tmp_table_factory.get()
-    with_cpu_session(lambda spark: write_hive_table(spark, cpu_table), _hive_write_conf)
-    with_gpu_session(lambda spark: write_hive_table(spark, gpu_table), _hive_write_conf)
+    write_conf = dict(_hive_write_conf)
+    if file_format == 'orc':
+        write_conf['orc.proleptic.gregorian'] = 'true'
+    with_cpu_session(lambda spark: write_hive_table(spark, cpu_table), write_conf)
+    with_gpu_session(lambda spark: write_hive_table(spark, gpu_table), write_conf)
     cpu_rows, gpu_rows = 0, 0
     for cur_bucket_id in range(num_buckets):
         # Verify the result bucket by bucket
