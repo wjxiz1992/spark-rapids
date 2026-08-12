@@ -93,6 +93,17 @@ object GpuOrcFileFormat extends Logging {
     // for non-UTC timestamp writes so the output stays interoperable. Reads use the JVM default
     // (systemDefault) zone, so the write-side gate matches the reader on the same check.
     val types = schema.map(_.dataType).toSet
+    val hasDates = types.exists { dataType =>
+      TrampolineUtil.dataTypeExistsRecursively(dataType, _.isInstanceOf[DateType])
+    }
+    if (hasDates) {
+      val hadoopConf = spark.sessionState.newHadoopConfWithOptions(options)
+      if (!PROLEPTIC_GREGORIAN.getBoolean(hadoopConf)) {
+        meta.willNotWorkOnGpu("Writing ORC dates with the legacy hybrid calendar is not " +
+          "supported on GPU; set orc.proleptic.gregorian=true to use the GPU writer")
+      }
+    }
+
     if (types.exists(GpuOverrides.isOrContainsTimestamp) &&
         !GpuOverrides.isUTCTimezone(ZoneId.systemDefault())) {
       meta.willNotWorkOnGpu("Writing ORC timestamps is only supported in the UTC timezone " +

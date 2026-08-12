@@ -209,6 +209,7 @@ class OrcCalendarSuite extends SparkQueryCompareTestSuite {
             .coalesce(1)
             .write
             .mode("overwrite")
+            .option(OrcConf.PROLEPTIC_GREGORIAN.getAttribute, "true")
             .orc(outputDir.getCanonicalPath)
           (sharedHadoopConf, originalValue)
         }, conf)

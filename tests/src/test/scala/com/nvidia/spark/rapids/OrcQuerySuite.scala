@@ -25,7 +25,7 @@ import com.nvidia.spark.rapids.Arm.{withResource, withResourceIfAllowed}
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.FileUtil.fullyDelete
 import org.apache.hadoop.fs.Path
-import org.apache.orc.{OrcFile, StripeInformation}
+import org.apache.orc.{OrcConf, OrcFile, StripeInformation}
 import org.apache.orc.impl.RecordReaderImpl
 
 import org.apache.spark.{SPARK_VERSION_SHORT, SparkConf, SparkContext}
@@ -70,6 +70,40 @@ class OrcQuerySuite extends SparkQueryCompareTestSuite {
       } finally {
         fullyDelete(tempFile)
       }
+    }
+  }
+
+  Seq("orc", "").foreach { v1List =>
+    val sparkConf = new SparkConf().set("spark.sql.sources.useV1SourceList", v1List)
+    testGpuWriteFallback(
+      s"ORC date write falls back for the legacy hybrid calendar, source list is ($v1List)",
+      "DataWritingCommandExec",
+      spark => spark.range(1).selectExpr(
+        "named_struct('date', CAST('1001-01-01' AS DATE)) AS value"),
+      execsAllowedNonGpu = Seq(
+        "DataWritingCommandExec", "WriteFilesExec", "ShuffleExchangeExec"),
+      conf = sparkConf
+    ) { frame =>
+      withTempPath { outputPath =>
+        frame.write.mode("overwrite")
+          .option(OrcConf.PROLEPTIC_GREGORIAN.getAttribute, "false")
+          .orc(outputPath.getCanonicalPath)
+      }
+    }
+
+    test(s"ORC date write stays on GPU for the proleptic calendar, source list is ($v1List)") {
+      withGpuSparkSession({ spark =>
+        withTempPath { outputPath =>
+          ExecutionPlanCaptureCallback.startCapture()
+          spark.range(1).selectExpr("CAST('1001-01-01' AS DATE) AS date")
+            .write.mode("overwrite")
+            .option(OrcConf.PROLEPTIC_GREGORIAN.getAttribute, "true")
+            .orc(outputPath.getCanonicalPath)
+          val plans = ExecutionPlanCaptureCallback.getResultsWithTimeout()
+          assert(plans.nonEmpty, "Did not capture GPU write plan")
+          ExecutionPlanCaptureCallback.assertContains(plans.head, "GpuDataWritingCommandExec")
+        }
+      }, sparkConf)
     }
   }
 
