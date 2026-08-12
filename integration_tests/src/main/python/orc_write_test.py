@@ -303,7 +303,9 @@ def test_write_save_table_orc(spark_tmp_path, orc_gens, orc_impl, spark_tmp_tabl
 def write_orc_sql_from(spark, df, data_path, write_to_table):
     tmp_view_name = 'tmp_view_{}'.format(random.randint(0, 1000000))
     df.createOrReplaceTempView(tmp_view_name)
-    write_cmd = 'CREATE TABLE `{}` USING ORC location \'{}\' AS SELECT * from `{}`'.format(write_to_table, data_path, tmp_view_name)
+    write_cmd = "CREATE TABLE `{}` USING ORC OPTIONS ('orc.proleptic.gregorian'='true') " \
+                "location '{}' AS SELECT * from `{}`".format(
+                    write_to_table, data_path, tmp_view_name)
     spark.sql(write_cmd)
 
 non_utc_hive_save_table_allow = ['ExecutedCommandExec', 'DataWritingCommandExec', 'CreateDataSourceTableAsSelectCommand', 'WriteFilesExec'] if is_not_utc() else []
