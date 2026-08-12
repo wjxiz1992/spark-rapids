@@ -24,7 +24,6 @@ from marks import allow_non_gpu, approximate_float, disable_ansi_mode, tz_sensit
 from pyspark.sql.types import *
 from spark_init_internal import spark_version
 from datetime import date, datetime, timedelta
-import math
 import pytz
 
 _decimal_gen_36_5 = DecimalGen(precision=36, scale=5)
@@ -117,7 +116,7 @@ def test_cast_string_to_boolean_invalid_ansi_on(invalid_value):
         BinaryType(),
         id='string-to-binary'),
     pytest.param(DateGen(), StringType(), id='date-to-string'),
-    pytest.param(TimestampGen(), StringType(), id='timestamp-to-string'),
+    pytest.param(TimestampGen(), DateType(), id='timestamp-to-date'),
     pytest.param(
         ArrayGen(
             ByteGen(special_cases=[BYTE_MIN, BYTE_MAX, 0, 1, -1]),
