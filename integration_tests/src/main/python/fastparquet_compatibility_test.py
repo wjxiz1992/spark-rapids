@@ -79,6 +79,21 @@ def needs_nan_preserving_conversion(data_gen: DataGen) -> bool:
     return _is_fully_non_nullable(data_gen) and _contains_nan_capable_float(data_gen)
 
 
+@pytest.mark.parametrize("data_gen", [
+    pytest.param(FloatGen(nullable=True), id="nullable-float"),
+    pytest.param(IntegerGen(nullable=False), id="non-float"),
+    pytest.param(
+        StructGen([
+            ("nested", StructGen([
+                ("value", FloatGen(nullable=True)),
+            ], nullable=False)),
+        ], nullable=False),
+        id="nullable-nested-float"),
+])
+def test_needs_nan_preserving_conversion_rejects_unsafe_data_gen(data_gen):
+    assert not needs_nan_preserving_conversion(data_gen)
+
+
 rebase_write_corrected_conf = {
     'spark.sql.parquet.datetimeRebaseModeInWrite': 'CORRECTED',
     'spark.sql.parquet.int96RebaseModeInWrite': 'CORRECTED'
