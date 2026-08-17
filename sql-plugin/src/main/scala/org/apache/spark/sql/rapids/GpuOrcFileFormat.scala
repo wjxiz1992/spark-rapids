@@ -97,11 +97,10 @@ object GpuOrcFileFormat extends Logging {
       TrampolineUtil.dataTypeExistsRecursively(dataType, _.isInstanceOf[DateType])
     }
     if (hasDates) {
-      val hadoopConf = spark.sessionState.newHadoopConfWithOptions(options)
-      if (!PROLEPTIC_GREGORIAN.getBoolean(hadoopConf)) {
-        meta.willNotWorkOnGpu("Writing ORC dates with the legacy hybrid calendar is not " +
-          "supported on GPU; set orc.proleptic.gregorian=true to use the GPU writer")
-      }
+      // The cuDF writer does not emit ORC calendar metadata. Without it, readers choose the
+      // calendar from orc.proleptic.gregorian.default and can reinterpret pre-1582 dates.
+      meta.willNotWorkOnGpu("Writing ORC dates is not supported on GPU because the cuDF " +
+        "writer does not emit calendar metadata")
     }
 
     if (types.exists(GpuOverrides.isOrContainsTimestamp) &&

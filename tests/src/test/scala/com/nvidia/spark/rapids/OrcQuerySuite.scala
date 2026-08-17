@@ -75,35 +75,23 @@ class OrcQuerySuite extends SparkQueryCompareTestSuite {
 
   Seq("orc", "").foreach { v1List =>
     val sparkConf = new SparkConf().set("spark.sql.sources.useV1SourceList", v1List)
-    testGpuWriteFallback(
-      s"ORC date write falls back for the legacy hybrid calendar, source list is ($v1List)",
-      "DataWritingCommandExec",
-      spark => spark.range(1).selectExpr(
-        "named_struct('date', CAST('1001-01-01' AS DATE)) AS value"),
-      execsAllowedNonGpu = Seq(
-        "DataWritingCommandExec", "WriteFilesExec", "ShuffleExchangeExec"),
-      conf = sparkConf
-    ) { frame =>
-      withTempPath { outputPath =>
-        frame.write.mode("overwrite")
-          .option(OrcConf.PROLEPTIC_GREGORIAN.getAttribute, "false")
-          .orc(outputPath.getCanonicalPath)
-      }
-    }
-
-    test(s"ORC date write stays on GPU for the proleptic calendar, source list is ($v1List)") {
-      withGpuSparkSession({ spark =>
+    Seq(false, true).foreach { prolepticGregorian =>
+      testGpuWriteFallback(
+        s"ORC date write falls back without calendar metadata, source list is ($v1List), " +
+          s"proleptic=$prolepticGregorian",
+        "DataWritingCommandExec",
+        spark => spark.range(1).selectExpr(
+          "named_struct('date', CAST('1001-01-01' AS DATE)) AS value"),
+        execsAllowedNonGpu = Seq(
+          "DataWritingCommandExec", "WriteFilesExec", "ShuffleExchangeExec"),
+        conf = sparkConf
+      ) { frame =>
         withTempPath { outputPath =>
-          ExecutionPlanCaptureCallback.startCapture()
-          spark.range(1).selectExpr("CAST('1001-01-01' AS DATE) AS date")
-            .write.mode("overwrite")
-            .option(OrcConf.PROLEPTIC_GREGORIAN.getAttribute, "true")
+          frame.write.mode("overwrite")
+            .option(OrcConf.PROLEPTIC_GREGORIAN.getAttribute, prolepticGregorian.toString)
             .orc(outputPath.getCanonicalPath)
-          val plans = ExecutionPlanCaptureCallback.getResultsWithTimeout()
-          assert(plans.nonEmpty, "Did not capture GPU write plan")
-          ExecutionPlanCaptureCallback.assertContains(plans.head, "GpuDataWritingCommandExec")
         }
-      }, sparkConf)
+      }
     }
   }
 

@@ -23,15 +23,13 @@ import java.time.{LocalDate, ZoneId}
 import ai.rapids.cudf.{ColumnVector, Table}
 import com.nvidia.spark.rapids.Arm.{withResource, withResourceIfAllowed}
 import com.nvidia.spark.rapids.RapidsReaderType.RapidsReaderType
-import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.Path
 import org.apache.hadoop.hive.ql.exec.vector.{
   DateColumnVector, ListColumnVector, LongColumnVector, StructColumnVector}
-import org.apache.orc.{OrcConf, OrcFile, TypeDescription}
+import org.apache.orc.{OrcFile, TypeDescription}
 
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.sql.rapids.ExecutionPlanCaptureCallback
 import org.apache.spark.sql.rapids.shims.TrampolineConnectShims.SparkSession
 
 class OrcCalendarSuite extends SparkQueryCompareTestSuite {
@@ -127,14 +125,6 @@ class OrcCalendarSuite extends SparkQueryCompareTestSuite {
     writeCalendarFile(spark, base, id = 1, writerUsedProlepticGregorian = true)
   }
 
-  private def findSingleOrcFile(base: File): File = {
-    val orcFiles = Option(base.listFiles()).getOrElse(Array.empty)
-      .filter(_.getName.endsWith(".orc"))
-    assert(orcFiles.length === 1,
-      s"expected one ORC data file in $base, found ${orcFiles.mkString(", ")}")
-    orcFiles.head
-  }
-
   test("proleptic nested ORC date rebase reuses the unchanged struct column") {
     withGpuSparkSession { _ =>
       withResource(ColumnVector.daysFromInts(0)) { dateColumn =>
@@ -193,72 +183,4 @@ class OrcCalendarSuite extends SparkQueryCompareTestSuite {
     }
   }
 
-  Seq(false, true).foreach { prolepticGregorianDefault =>
-    test(s"read GPU-written ORC date without calendar metadata, " +
-        s"proleptic default=$prolepticGregorianDefault") {
-      withTempPath { outputDir =>
-        val prolepticDefaultKey = OrcConf.PROLEPTIC_GREGORIAN_DEFAULT.getAttribute
-        val conf = calendarConf(RapidsReaderType.PERFILE,
-          useChunkedReader = false, v1SourceList = "orc")
-
-        ExecutionPlanCaptureCallback.startCapture()
-        val (hadoopConf, originalProlepticDefault) = withGpuSparkSession(spark => {
-          val sharedHadoopConf = spark.sparkContext.hadoopConfiguration
-          val originalValue = Option(sharedHadoopConf.getRaw(prolepticDefaultKey))
-          spark.sql("SELECT DATE '1200-01-01' AS date_value")
-            .coalesce(1)
-            .write
-            .mode("overwrite")
-            .option(OrcConf.PROLEPTIC_GREGORIAN.getAttribute, "true")
-            .orc(outputDir.getCanonicalPath)
-          (sharedHadoopConf, originalValue)
-        }, conf)
-        val writePlans = ExecutionPlanCaptureCallback.getResultsWithTimeout()
-        assert(writePlans.nonEmpty, "did not capture the GPU ORC write plan")
-        ExecutionPlanCaptureCallback.assertContains(
-          writePlans.head, "GpuDataWritingCommandExec")
-
-        val orcFile = findSingleOrcFile(outputDir)
-        withResourceIfAllowed(OrcFile.createReader(new Path(orcFile.getCanonicalPath),
-          OrcFile.readerOptions(new Configuration()))) { reader =>
-          val footer = reader.getFileTail.getFooter
-          assert(footer.hasWriter && footer.getWriter === 5,
-            s"expected cuDF writer id 5 in ${orcFile.getCanonicalPath}")
-          assert(!footer.hasCalendar,
-            s"cuDF ORC writer unexpectedly emitted calendar metadata in $orcFile")
-        }
-
-        try {
-          val (cpuRows, gpuRows) = runOnCpuAndGpu(
-            spark => {
-              // SparkQueryCompareTestSuite reuses the SparkContext, so set this ORC reader option
-              // on its Hadoop configuration for each CPU/GPU read instead of relying on a new
-              // spark.hadoop.* SparkConf to be propagated.
-              spark.sparkContext.hadoopConfiguration.setBoolean(
-                prolepticDefaultKey, prolepticGregorianDefault)
-              spark.read.orc(outputDir.getCanonicalPath)
-            },
-            frame => frame,
-            conf = conf,
-            repart = 0,
-            skipCanonicalizationCheck = true,
-            existClasses = "GpuFileSourceScanExec")
-          compareResults(
-            sort = false,
-            floatEpsilon = 0.0,
-            fromCpu = cpuRows,
-            fromGpu = gpuRows)
-          if (prolepticGregorianDefault) {
-            assert(cpuRows.length === 1)
-            assert(cpuRows.head.getDate(0).toLocalDate === LocalDate.of(1200, 1, 1))
-          }
-        } finally {
-          originalProlepticDefault match {
-            case Some(value) => hadoopConf.set(prolepticDefaultKey, value)
-            case None => hadoopConf.unset(prolepticDefaultKey)
-          }
-        }
-      }
-    }
-  }
 }
