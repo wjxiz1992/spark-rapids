@@ -76,20 +76,24 @@ class OrcQuerySuite extends SparkQueryCompareTestSuite {
   Seq("orc", "").foreach { v1List =>
     val sparkConf = new SparkConf().set("spark.sql.sources.useV1SourceList", v1List)
     Seq(false, true).foreach { prolepticGregorian =>
-      testGpuWriteFallback(
-        s"ORC date write falls back without calendar metadata, source list is ($v1List), " +
-          s"proleptic=$prolepticGregorian",
-        "DataWritingCommandExec",
-        spark => spark.range(1).selectExpr(
-          "named_struct('date', CAST('1001-01-01' AS DATE)) AS value"),
-        execsAllowedNonGpu = Seq(
-          "DataWritingCommandExec", "WriteFilesExec", "ShuffleExchangeExec"),
-        conf = sparkConf
-      ) { frame =>
-        withTempPath { outputPath =>
-          frame.write.mode("overwrite")
-            .option(OrcConf.PROLEPTIC_GREGORIAN.getAttribute, prolepticGregorian.toString)
-            .orc(outputPath.getCanonicalPath)
+      Seq(
+        "struct" -> "named_struct('date', CAST('1001-01-01' AS DATE)) AS value",
+        "array" -> "array(CAST('1001-01-01' AS DATE)) AS value"
+      ).foreach { case (nestedType, selectExpr) =>
+        testGpuWriteFallback(
+          s"ORC date write falls back without calendar metadata, source list is ($v1List), " +
+            s"proleptic=$prolepticGregorian, nested type=$nestedType",
+          "DataWritingCommandExec",
+          spark => spark.range(1).selectExpr(selectExpr),
+          execsAllowedNonGpu = Seq(
+            "DataWritingCommandExec", "WriteFilesExec", "ShuffleExchangeExec"),
+          conf = sparkConf
+        ) { frame =>
+          withTempPath { outputPath =>
+            frame.write.mode("overwrite")
+              .option(OrcConf.PROLEPTIC_GREGORIAN.getAttribute, prolepticGregorian.toString)
+              .orc(outputPath.getCanonicalPath)
+          }
         }
       }
     }

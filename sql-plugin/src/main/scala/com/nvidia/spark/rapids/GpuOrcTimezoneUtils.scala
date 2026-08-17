@@ -90,33 +90,66 @@ object GpuOrcTimezoneUtils {
       writerUsedProlepticGregorian: Boolean): Table = {
     val readerZone = ZoneId.of(readerTz, ZoneId.SHORT_IDS)
     withResource(input) { _ =>
-      withResource(GpuTimeZoneDB.buildOrcTimezoneContext(writerTz, readerTz)) { tzCtx =>
-        val newColumns = (0 until input.getNumberOfColumns).safeMap { colIdx =>
-          val col = input.getColumn(colIdx)
-          val dType = col.getType
-          if (dType == DType.TIMESTAMP_DAYS && !writerUsedProlepticGregorian) {
-            DateTimeRebase.rebaseJulianToGregorian(col)
-          } else if (dType.hasTimeResolution) {
-            convertOrcTimestamp(col, tzCtx, readerZone)
-          } else if (dType == DType.LIST || dType == DType.STRUCT) {
-            withResource(new ArrayBuffer[ColumnView]) { toClose =>
-              val rebased = rebaseNestedWithWriterTimezone(
-                col, tzCtx, readerZone, writerUsedProlepticGregorian, toClose)
-              if (rebased eq col) {
-                col.incRefCount()
-              } else {
-                toClose += rebased
-                rebased.copyToColumnVector()
-              }
-            }
-          } else {
-            col.incRefCount()
-          }
+      if (containsOrcTimestamp(input)) {
+        withResource(GpuTimeZoneDB.buildOrcTimezoneContext(writerTz, readerTz)) { tzCtx =>
+          rebaseColumns(input, Some(tzCtx), readerZone, writerUsedProlepticGregorian)
         }
-        withResource(newColumns) { _ =>
-          new Table(newColumns: _*)
+      } else {
+        rebaseColumns(input, None, readerZone, writerUsedProlepticGregorian)
+      }
+    }
+  }
+
+  private def containsOrcTimestamp(input: Table): Boolean = {
+    (0 until input.getNumberOfColumns).exists { colIdx =>
+      containsOrcTimestamp(input.getColumn(colIdx))
+    }
+  }
+
+  private def containsOrcTimestamp(col: ColumnView): Boolean = {
+    val dType = col.getType
+    if (dType.hasTimeResolution) {
+      true
+    } else if (dType == DType.LIST || dType == DType.STRUCT) {
+      (0 until col.getNumChildren).exists { childIdx =>
+        withResource(col.getChildColumnView(childIdx)) { child =>
+          containsOrcTimestamp(child)
         }
       }
+    } else {
+      false
+    }
+  }
+
+  private def rebaseColumns(
+      input: Table,
+      tzCtx: Option[GpuTimeZoneDB.OrcTimezoneContext],
+      readerZone: ZoneId,
+      writerUsedProlepticGregorian: Boolean): Table = {
+    val newColumns = (0 until input.getNumberOfColumns).safeMap { colIdx =>
+      val col = input.getColumn(colIdx)
+      val dType = col.getType
+      if (dType == DType.TIMESTAMP_DAYS && !writerUsedProlepticGregorian) {
+        DateTimeRebase.rebaseJulianToGregorian(col)
+      } else if (dType.hasTimeResolution) {
+        convertOrcTimestamp(col, tzCtx.get, readerZone)
+      } else if (dType == DType.LIST || dType == DType.STRUCT) {
+        withResource(new ArrayBuffer[ColumnView]) { toClose =>
+          val rebased = rebaseNestedWithWriterTimezone(
+            col, tzCtx, readerZone, writerUsedProlepticGregorian, toClose)
+          if (rebased eq col) {
+            col.incRefCount()
+          } else {
+            toClose += rebased
+            rebased.copyToColumnVector()
+          }
+        }
+      } else {
+        col.incRefCount()
+      }
+    }
+    withResource(newColumns) { _ =>
+      new Table(newColumns: _*)
     }
   }
 
@@ -167,7 +200,7 @@ object GpuOrcTimezoneUtils {
 
   private def rebaseNestedWithWriterTimezone(
       col: ColumnView,
-      tzCtx: GpuTimeZoneDB.OrcTimezoneContext,
+      tzCtx: Option[GpuTimeZoneDB.OrcTimezoneContext],
       readerZone: ZoneId,
       writerUsedProlepticGregorian: Boolean,
       toClose: ArrayBuffer[ColumnView]): ColumnView = {
@@ -177,7 +210,7 @@ object GpuOrcTimezoneUtils {
     if (dType == DType.TIMESTAMP_DAYS && !writerUsedProlepticGregorian) {
       DateTimeRebase.rebaseJulianToGregorian(col)
     } else if (dType.hasTimeResolution) {
-      convertOrcTimestamp(col, tzCtx, readerZone)
+      convertOrcTimestamp(col, tzCtx.get, readerZone)
     } else if (dType == DType.LIST) {
       val child = addToClose(col.getChildColumnView(0))
       val newChild = rebaseNestedWithWriterTimezone(
