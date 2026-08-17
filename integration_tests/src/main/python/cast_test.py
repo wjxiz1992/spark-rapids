@@ -12,15 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import math
-
 import pytest
 
 from asserts import *
-from conftest import is_not_utc, is_supported_time_zone, is_dataproc_serverless_runtime, spark_jvm
+from conftest import is_not_utc, is_supported_time_zone, is_dataproc_serverless_runtime
 from data_gen import *
 from spark_session import *
-from marks import allow_non_gpu, approximate_float, disable_ansi_mode, tz_sensitive_test
+from marks import (allow_non_gpu, approximate_float, disable_ansi_mode, tz_sensitive_test,
+                   validate_execs_in_gpu_plan)
 from pyspark.sql.types import *
 from spark_init_internal import spark_version
 from datetime import date, datetime, timedelta
@@ -78,9 +77,7 @@ def test_cast_string_to_boolean_invalid_ansi_on(invalid_value):
         error_message="SparkRuntimeException")
 
 
-# YearMonthIntervalType is excluded because its ANSI casts are not GPU-supported in Spark 3.3.
-@allow_non_gpu(*non_utc_allow)
-@pytest.mark.parametrize('data_gen,to_type', [
+_ansi_cast_corner_case_params = [
     pytest.param(BooleanGen(), StringType(), id='boolean-to-string'),
     pytest.param(
         ByteGen(special_cases=[BYTE_MIN, BYTE_MAX, 0, 1, -1]),
@@ -99,9 +96,9 @@ def test_cast_string_to_boolean_invalid_ansi_on(invalid_value):
         DecimalType(20, 0),
         id='long-to-decimal'),
     pytest.param(
-        FloatGen(
-            no_nans=True,
-            special_cases=[FLOAT_MIN, FLOAT_MAX, 0.0, -0.0, 1.0, -1.0, float('nan')]),
+        RepeatSeqGen(
+            [None, FLOAT_MIN, FLOAT_MAX, 0.0, -0.0, 1.0, -1.0, float('nan')],
+            data_type=FloatType()),
         DoubleType(),
         id='float-to-double'),
     pytest.param(
@@ -147,7 +144,15 @@ def test_cast_string_to_boolean_invalid_ansi_on(invalid_value):
                 MAX_DAY_TIME_INTERVAL,
                 timedelta(seconds=0)]),
         StringType(),
-        id='day-time-interval-to-string')])
+        id='day-time-interval-to-string')]
+
+_ansi_cast_non_utc_allow = ['ProjectExec'] if is_not_utc() else []
+
+
+# YearMonthIntervalType is excluded because its ANSI casts are not GPU-supported in Spark 3.3.
+@allow_non_gpu(*_ansi_cast_non_utc_allow)
+@validate_execs_in_gpu_plan('GpuProjectExec')
+@pytest.mark.parametrize('data_gen,to_type', _ansi_cast_corner_case_params)
 def test_ansicast_corner_cases(data_gen, to_type):
     # Includes null, finite numeric bounds, +/-0.0, NaN, empty string, and Unicode/emoji.
     # Infinities are intentionally outside this corner-case milestone.
@@ -158,28 +163,9 @@ def test_ansicast_corner_cases(data_gen, to_type):
     (from_cpu, cpu_df), (from_gpu, gpu_df) = run_with_cpu_and_gpu(
         do_cast, 'COLLECT_WITH_DATAFRAME', conf=ansi_enabled_conf)
 
-    callback = spark_jvm().org.apache.spark.sql.rapids.ExecutionPlanCaptureCallback
-    callback.assertContainsAnsiCast(cpu_df._jdf)
-    callback.assertContainsAnsiCast(gpu_df._jdf)
-    gpu_plan = gpu_df._jdf.queryExecution().executedPlan()
-    callback.assertContains(gpu_plan, 'GpuProjectExec')
-    for cpu_cast_class in ('AnsiCast', 'Cast'):
-        assert not callback.didFallBack(gpu_plan, cpu_cast_class), \
-            f'GPU plan fell back to CPU {cpu_cast_class}:\n{gpu_plan}'
-    assert_equal(from_cpu, from_gpu)
-
-    if isinstance(to_type, (FloatType, DoubleType)):
-        saw_negative_zero = False
-        for cpu_row, gpu_row in zip(from_cpu, from_gpu):
-            cpu_value = cpu_row['result']
-            gpu_value = gpu_row['result']
-            if cpu_value is not None and cpu_value == 0.0:
-                cpu_sign = math.copysign(1.0, cpu_value)
-                gpu_sign = math.copysign(1.0, gpu_value)
-                assert cpu_sign == gpu_sign, \
-                    f'GPU changed the sign of zero: CPU={cpu_value}, GPU={gpu_value}'
-                saw_negative_zero = saw_negative_zero or cpu_sign < 0
-        assert saw_negative_zero, 'Float corner data did not exercise negative zero'
+    assert_contains_ansi_cast(cpu_df)
+    assert_contains_ansi_cast(gpu_df)
+    assert_equal_with_signed_zero(from_cpu, from_gpu)
 
 # These tests are not intended to be exhaustive. The scala test CastOpSuite should cover
 # just about everything for non-nested values. This is intended to check that the
