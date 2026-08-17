@@ -1418,5 +1418,8 @@ def test_lazy_quantifier():
     assert_gpu_and_cpu_are_equal_collect(
         lambda spark: unary_op_df(spark, bounded_reluctant_gen).selectExpr(
             'regexp_extract(a, "((aa|bb){0,3}?).*cc", 0)',
-            'regexp_extract(a, "((aa|bb){0,3}?).*cc", 1)'),
+            'regexp_extract(a, "((aa|bb){0,3}?).*cc", 1)',
+            'regexp_extract_all(a, "(a{1,3}?)", 0)',
+            'regexp_extract_all(a, "(a{1,3}?)", 1)',
+            'rlike(a, "a[a-c]{1,3}?")'),
         conf=_regexp_conf)

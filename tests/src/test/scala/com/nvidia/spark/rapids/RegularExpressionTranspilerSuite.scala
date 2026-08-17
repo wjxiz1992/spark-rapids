@@ -166,6 +166,12 @@ class RegularExpressionTranspilerSuite extends AnyFunSuite {
         "cuDF does not support repetition counts greater than 999")
     }
 
+    val reluctantError = intercept[RegexUnsupportedException] {
+      transpile("a{1000}?", RegexFindMode)
+    }
+    assert(reluctantError.getMessage.endsWith("near index 1"),
+      s"oversized reluctant quantifier reported the wrong position: $reluctantError")
+
     assertCpuGpuMatchesRegexpFind(
       Seq("a{999}?"),
       Seq("", "a" * 998, "a" * 999, "a" * 1000))

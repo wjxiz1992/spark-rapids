@@ -1427,11 +1427,11 @@ class CudfRegexTranspiler(mode: RegexMode) {
             }
         })._1)
 
-      case RegexRepetition(base, quantifier) => (base, quantifier) match {
+      case repetition @ RegexRepetition(base, quantifier) => (base, quantifier) match {
         case (_, q) if exceedsCudfRepetitionCountLimit(q) =>
           throw new RegexUnsupportedException(
             s"cuDF does not support repetition counts greater than $maxRepetitionCount",
-            q.position)
+            repetition.position)
 
         case (_, q) if q.isPossessive =>
           throw new RegexUnsupportedException(
