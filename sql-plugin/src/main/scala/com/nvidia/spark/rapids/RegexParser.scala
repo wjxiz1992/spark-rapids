@@ -2131,8 +2131,8 @@ object RegexRewrite {
             case (RegexChar(start), RegexChar(end)) => (start, end)
             case _ => return None
           }
-          // In Rlike, contains [a-b]{minLen,maxLen} is equivalent to contains
-          // [a-b]{minLen} because matching returns once it finds the minimum match.
+          // For boolean RLIKE, a match only requires at least minLength characters in the range
+          // after the literal prefix, so maxLength and quantifier mode do not affect the result.
           val length = quantifier.minLength
           // Convert start and end to code points
           Some((length, start.toInt, end.toInt))
