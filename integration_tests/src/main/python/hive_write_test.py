@@ -15,7 +15,7 @@
 import pytest
 
 from asserts import *
-from conftest import spark_jvm, is_utc
+from conftest import is_utc
 from data_gen import *
 from datetime import date, datetime, timezone
 from marks import *
@@ -212,7 +212,6 @@ def do_hive_copy(spark_tmp_table_factory, gen, type1, type2):
             'spark.sql.ansi.enabled': 'true',
             'spark.sql.storeAssignmentPolicy': 'ANSI'})
 
-    jvm = spark_jvm()
-    jvm.org.apache.spark.sql.rapids.ExecutionPlanCaptureCallback.assertContainsAnsiCast(cpu_df._jdf)
-    jvm.org.apache.spark.sql.rapids.ExecutionPlanCaptureCallback.assertContainsAnsiCast(gpu_df._jdf)
+    assert_contains_ansi_cast(cpu_df)
+    assert_contains_ansi_cast(gpu_df)
     assert_equal(from_cpu, from_gpu)
