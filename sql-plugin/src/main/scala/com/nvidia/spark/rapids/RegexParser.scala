@@ -794,8 +794,8 @@ class CudfRegexTranspiler(mode: RegexMode) {
       extractIndex: Option[Int],
       repl: Option[String]): (RegexAST, Option[RegexReplacement]) = {
 
-    // if we have a replacement, parse the replacement string using the regex parser to account
-    // for backrefs
+    // Validate Java Matcher.appendReplacement syntax while preserving raw backreference tokens.
+    // GpuRegExpUtils.backrefConversion translates them to cuDF syntax later.
     val replacement = repl.map(s => new RegexParser(s).parseReplacement())
 
     // validate that the regex is supported by cuDF
