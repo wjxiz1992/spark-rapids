@@ -14,17 +14,7 @@
  * limitations under the License.
  */
 
-/*** spark-rapids-shim-json-lines
-{"spark": "411"}
-spark-rapids-shim-json-lines ***/
-package com.nvidia.spark.rapids
+package org.apache.spark.sql.catalyst.plans.logical
 
-import com.nvidia.spark.rapids.delta.{DeltaProvider, NoDeltaProvider}
-
-class DeltaLakeQuerySuiteSpark411 extends SparkQueryCompareTestSuite {
-  test("delta provider resolves to a real implementation on spark 411") {
-    val provider = DeltaProvider()
-    assert(provider ne NoDeltaProvider)
-    assert(provider.getClass.getName.contains("Delta41xProvider"))
-  }
-}
+// Delta 4.1 commands retain a binary dependency on this marker removed after Spark 4.1.1.
+trait IgnoreCachedData
