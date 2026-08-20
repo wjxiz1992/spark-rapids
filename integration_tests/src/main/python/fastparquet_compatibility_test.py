@@ -68,7 +68,7 @@ def _is_fully_non_nullable(data_gen: DataGen) -> bool:
 
 
 def _contains_nan_capable_float(data_gen: DataGen) -> bool:
-    """Whether data_gen contains a FloatGen or DoubleGen at any depth."""
+    """Whether data_gen contains a FloatGen or DoubleGen through nested structs."""
     return (isinstance(data_gen, (FloatGen, DoubleGen)) or
             (isinstance(data_gen, StructGen) and
              any(_contains_nan_capable_float(child) for _, child in data_gen.children)))
@@ -84,11 +84,12 @@ def needs_nan_preserving_conversion(data_gen: DataGen) -> bool:
     pytest.param(IntegerGen(nullable=False), id="non-float"),
     pytest.param(
         StructGen([
+            ("direct", FloatGen(nullable=False)),
             ("nested", StructGen([
-                ("value", FloatGen(nullable=True)),
+                ("value", DoubleGen(nullable=True)),
             ], nullable=False)),
         ], nullable=False),
-        id="nullable-nested-float"),
+        id="nullable-nested-float-with-direct-float"),
 ])
 def test_needs_nan_preserving_conversion_rejects_unsafe_data_gen(data_gen):
     assert not needs_nan_preserving_conversion(data_gen)
