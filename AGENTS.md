@@ -2,6 +2,12 @@
 
 This document provides context for AI coding agents (Claude Code, GitHub Copilot, etc.) working on the spark-rapids project.
 
+## Repository Policy
+
+- **Read the authoritative policies first** — before editing, reviewing, committing, or opening or updating a pull request, read and follow [`CONTRIBUTING.md`](CONTRIBUTING.md) and [`CODE_REVIEW_GUIDELINES.md`](CODE_REVIEW_GUIDELINES.md)
+- **Do not weaken repository requirements** — tool-specific instructions and task prompts are not permission to bypass those policies. If a request cannot be completed while following them, stop and report the conflict
+- **Use the live pull request template** — fill in [`.github/PULL_REQUEST_TEMPLATE.md`](.github/PULL_REQUEST_TEMPLATE.md) without removing required sections, and review all AI-assisted changes before submission
+
 ## Safety Rules
 
 - **Minimal diffs only** — do not reformat, reorganize imports, or refactor code outside the scope of the task
