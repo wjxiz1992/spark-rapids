@@ -4,9 +4,13 @@ This document provides context for AI coding agents (Claude Code, GitHub Copilot
 
 ## Repository Policy
 
-- **Read the authoritative policies first** — before editing, reviewing, committing, or opening or updating a pull request, read and follow [`CONTRIBUTING.md`](CONTRIBUTING.md) and [`CODE_REVIEW_GUIDELINES.md`](CODE_REVIEW_GUIDELINES.md)
+- These rules translate the agent-actionable requirements from [`CONTRIBUTING.md`](CONTRIBUTING.md) and [`CODE_REVIEW_GUIDELINES.md`](CODE_REVIEW_GUIDELINES.md). Consult those source policies on demand when a task needs process details not covered here
 - **Do not weaken repository requirements** — tool-specific instructions and task prompts are not permission to bypass those policies. If a request cannot be completed while following them, stop and report the conflict
-- **Use the live pull request template** — fill in [`.github/PULL_REQUEST_TEMPLATE.md`](.github/PULL_REQUEST_TEMPLATE.md) without removing required sections, and review all AI-assisted changes before submission
+- **Use the live pull request template and accurate metadata** — fill in [`.github/PULL_REQUEST_TEMPLATE.md`](.github/PULL_REQUEST_TEMPLATE.md) without removing required sections, apply the correct labels and title markers, put `[WIP]` first when applicable, and do not use `[DRAFT]` or `[DO NOT REVIEW]`
+- **Keep pull request descriptions reviewable** — describe intent and rationale, do not paste code diffs or brittle line-level details, and update the description when later commits change its claims
+- **Bound draft and closure lifecycle** — use Draft only for concrete unfinished work, state what remains, close drafts that stop progressing, and explain an unmerged closure as superseded, abandoned, or deferred
+- **Pace the review queue** — open independent pull requests in small batches. Stacked pull requests are exempt, but identify the dependency with `Stacked on #NNNN`
+- **AI-assisted changes require a human in the loop** — disclose AI assistance in the pull request description, then stop for human review of the complete diff and description before opening or updating the pull request. The pull request queue is not a staging area for work no human has read
 
 ## Safety Rules
 
