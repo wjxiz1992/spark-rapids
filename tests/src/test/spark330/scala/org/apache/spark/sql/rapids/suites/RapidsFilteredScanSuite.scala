@@ -21,10 +21,11 @@ package org.apache.spark.sql.rapids.suites
 
 import com.nvidia.spark.rapids.{GpuProjectExec, GpuRowToColumnarExec}
 
+import org.apache.spark.sql.Row
 import org.apache.spark.sql.execution.{DataSourceScanExec, SparkPlan}
 import org.apache.spark.sql.execution.datasources.LogicalRelation
 import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.sql.rapids.utils.RapidsSQLTestsTrait
+import org.apache.spark.sql.rapids.utils.{RapidsQueryTestUtil, RapidsSQLTestsTrait}
 import org.apache.spark.sql.sources.{ColumnsRequired, EqualTo, Filter, FilteredScanSuite,
   FiltersPushed, LessThan}
 
@@ -33,7 +34,8 @@ class RapidsFilteredScanSuite extends FilteredScanSuite with RapidsSQLTestsTrait
       count: Long,
       requiredColumns: Set[String],
       pushedFilters: Seq[Filter],
-      unhandledFilters: Set[Filter])
+      unhandledFilters: Set[Filter],
+      resultRows: Seq[Row])
 
   // Adapted from Spark 3.3 FilteredScanSuite lines 237-344. The inherited helper executes the
   // CPU RowDataSourceScanExec directly, bypassing every GPU operator in the query-level plan.
@@ -174,7 +176,7 @@ class RapidsFilteredScanSuite extends FilteredScanSuite with RapidsSQLTestsTrait
 
       // Use the scan metric after the complete query runs to retain Spark's original assertion
       // about source rows without directly executing the CPU data-source leaf.
-      query.collect()
+      val resultRows = RapidsQueryTestUtil.prepareAnswer(query.collect().toSeq, isSorted = false)
       val relation = spark.table("oneToTenFiltered").queryExecution.analyzed.collectFirst {
         case logicalRelation: LogicalRelation => logicalRelation.relation
       }.get
@@ -182,7 +184,8 @@ class RapidsFilteredScanSuite extends FilteredScanSuite with RapidsSQLTestsTrait
         sourceScan.metrics("numOutputRows").value,
         ColumnsRequired.set,
         FiltersPushed.list,
-        relation.unhandledFilters(FiltersPushed.list.toArray).toSet)
+        relation.unhandledFilters(FiltersPushed.list.toArray).toSet,
+        resultRows)
       (observation, plan)
     } finally {
       spark.conf.set(rapidsSqlEnabledKey, originalRapidsEnabled)
