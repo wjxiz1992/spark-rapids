@@ -21,4 +21,3 @@ pom.xml    @NVIDIA/sparkrapids-cicd-codeowners
 /.greptile/  @NVIDIA/sparkrapids-feature-team @NVIDIA/sparkrapids-perf-team
 /.claude/    @NVIDIA/sparkrapids-feature-team @NVIDIA/sparkrapids-perf-team
 /AGENTS.md   @NVIDIA/sparkrapids-feature-team @NVIDIA/sparkrapids-perf-team
-/CLAUDE.md   @NVIDIA/sparkrapids-feature-team @NVIDIA/sparkrapids-perf-team
