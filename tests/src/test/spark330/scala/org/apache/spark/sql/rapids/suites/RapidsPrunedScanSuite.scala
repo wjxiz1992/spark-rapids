@@ -39,10 +39,10 @@ class RapidsPrunedScanSuite extends PrunedScanSuite with RapidsSQLTestsTrait {
   testRapidsPruning("SELECT b, b FROM oneToTenPruned", "b")
   testRapidsPruning("SELECT a FROM oneToTenPruned", "a")
   testRapidsPruning("SELECT b FROM oneToTenPruned", "b")
-  testRapidsPruning("SELECT a, rand() FROM oneToTenPruned WHERE a > 5", "a")
-  testRapidsPruning("SELECT a FROM oneToTenPruned WHERE rand() > 0.5", "a")
-  testRapidsPruning("SELECT a, rand() FROM oneToTenPruned WHERE rand() > 0.5", "a")
-  testRapidsPruning("SELECT a, rand() FROM oneToTenPruned WHERE b > 5", "a", "b")
+  testRapidsPruning("SELECT a, rand(7) FROM oneToTenPruned WHERE a > 5", "a")
+  testRapidsPruning("SELECT a FROM oneToTenPruned WHERE rand(11) > 0.5", "a")
+  testRapidsPruning("SELECT a, rand(7) FROM oneToTenPruned WHERE rand(11) > 0.5", "a")
+  testRapidsPruning("SELECT a, rand(7) FROM oneToTenPruned WHERE b > 5", "a", "b")
 
   private def testRapidsPruning(sqlString: String, expectedColumns: String*): Unit = {
     testRapids(s"Columns output ${expectedColumns.mkString(",")}: $sqlString") {
