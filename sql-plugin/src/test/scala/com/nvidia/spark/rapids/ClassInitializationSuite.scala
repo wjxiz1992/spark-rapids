@@ -50,30 +50,38 @@ class ClassInitializationSuite extends AnyFunSuite with FQSuiteName {
     val java = new File(System.getProperty("java.home"), "bin/java").getAbsolutePath
     val classPath = System.getProperty("java.class.path")
     val mainClass = GpuOverridesClassInitializationReproducer.getClass.getName.stripSuffix("$")
+    val outputFile = File.createTempFile("class-initialization-", ".log")
 
-    val process = new ProcessBuilder(
-      java,
-      "-Dcom.nvidia.spark.rapids.runningTests=true",
-      "-cp",
-      classPath,
-      mainClass)
-        .redirectErrorStream(true)
-        .start()
+    try {
+      val process = new ProcessBuilder(
+        java,
+        "-Dcom.nvidia.spark.rapids.runningTests=true",
+        "-cp",
+        classPath,
+        mainClass)
+          .redirectErrorStream(true)
+          .redirectOutput(outputFile)
+          .start()
 
-    val finished = process.waitFor(30, TimeUnit.SECONDS)
-    if (!finished) {
-      process.destroyForcibly()
-      process.waitFor()
-    }
+      val finished = process.waitFor(30, TimeUnit.SECONDS)
+      if (!finished) {
+        process.destroyForcibly()
+        process.waitFor()
+      }
 
-    val source = Source.fromInputStream(process.getInputStream, "UTF-8")
-    val output = try {
-      source.mkString
+      val source = Source.fromFile(outputFile, "UTF-8")
+      val output = try {
+        source.mkString
+      } finally {
+        source.close()
+      }
+
+      ChildResult(finished, process.exitValue(), output)
     } finally {
-      source.close()
+      if (!outputFile.delete()) {
+        outputFile.deleteOnExit()
+      }
     }
-
-    ChildResult(finished, process.exitValue(), output)
   }
 
   private case class ChildResult(finished: Boolean, exitCode: Int, output: String)

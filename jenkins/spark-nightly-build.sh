@@ -134,9 +134,11 @@ function build_shim() {
   ( # use flock to prevent maven local repository contention across all parallel builds
     flock -x -w 300 200 || { echo "Lock acquisition failed"; exit 1; }
 
-    echo "Copying sql-plugin-api,aggregator to .m2 repo..."
+    echo "Copying sql-plugin-api,sql-plugin-format,aggregator to .m2 repo..."
     for mod in \
-      "rapids-4-spark-sql-plugin-api_${SCALA_BINARY_VER}" "rapids-4-spark-aggregator_${SCALA_BINARY_VER}"; do
+      "rapids-4-spark-sql-plugin-api_${SCALA_BINARY_VER}" \
+      "rapids-4-spark-sql-plugin-format_${SCALA_BINARY_VER}" \
+      "rapids-4-spark-aggregator_${SCALA_BINARY_VER}"; do
       SRC_DIR="${SHIM_M2DIR}/com/nvidia/${mod}/${ART_VER}"
       DEST_DIR="${M2DIR}/com/nvidia/${mod}/${ART_VER}"
 
