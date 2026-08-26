@@ -2000,7 +2000,8 @@ def test_reduction_with_max_by_same(data_gen):
             DayTimeIntervalGen(),
             marks=[
                 pytest.mark.xfail(
-                    reason='https://github.com/NVIDIA/cudf-spark/issues/15776'),
+                    reason='https://github.com/NVIDIA/cudf-spark/issues/15776',
+                    strict=True),
                 validate_execs_in_gpu_plan('GpuHashAggregateExec')
             ])
     ] + _nested_gens, ids=idfn)
@@ -2015,7 +2016,8 @@ def test_count(data_gen):
             'count(1)'),
         conf = {'spark.sql.legacy.allowParameterlessCount': 'true'})
 
-@pytest.mark.xfail(reason='https://github.com/NVIDIA/cudf-spark/issues/15776')
+@pytest.mark.xfail(
+    reason='https://github.com/NVIDIA/cudf-spark/issues/15776', strict=True)
 @validate_execs_in_gpu_plan('GpuHashAggregateExec')
 def test_count_year_month_interval():
     assert_gpu_and_cpu_are_equal_collect(
