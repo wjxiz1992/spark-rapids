@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import pytest
+from py4j.protocol import Py4JJavaError
 
 from asserts import *
 from conftest import is_not_utc
@@ -44,6 +45,12 @@ maps_with_struct_key = [
     MapGen(StructGen([['child0', IntegerGen()],
                       ['child1', IntegerGen()]], nullable=False),
            IntegerGen())]
+
+
+# Keep the xfail limited to issue #15783 so plan-validation failures still propagate.
+class _MapZipWithDecimalKnownIssue(Exception):
+    pass
+
 
 supported_key_map_gens = \
     map_gens_sample + \
@@ -860,14 +867,18 @@ def test_sql_map_scalars(query):
                                         DecimalGen(12, 2, nullable=False), nullable=False),
                                  marks=[
                                      pytest.mark.xfail(
-                                         reason='https://github.com/NVIDIA/cudf-spark/issues/15783'),
+                                         reason='https://github.com/NVIDIA/cudf-spark/issues/15783',
+                                         raises=_MapZipWithDecimalKnownIssue,
+                                         strict=True),
                                      validate_execs_in_gpu_plan('GpuProjectExec')]),
                              pytest.param(
                                  MapGen(DecimalGen(20, 2, nullable=False),
                                         DecimalGen(20, 2, nullable=False), nullable=False),
                                  marks=[
                                      pytest.mark.xfail(
-                                         reason='https://github.com/NVIDIA/cudf-spark/issues/15783'),
+                                         reason='https://github.com/NVIDIA/cudf-spark/issues/15783',
+                                         raises=_MapZipWithDecimalKnownIssue,
+                                         strict=True),
                                      validate_execs_in_gpu_plan('GpuProjectExec')])
                          ], ids=idfn)
 @allow_non_gpu(*non_utc_allow)
@@ -900,7 +911,22 @@ def test_map_zip_with(data_gen):
     # ANSI mode is disabled since this test verifies the behaviour of map_zip_with and the evaluation of the associated lambda. 
     # Exceptions during overflow conditions are tested in the arithmetic-ops tests.
     # Not using @disable_ansi_mode because of https://github.com/NVIDIA/spark-rapids/issues/13214.  Using explicit setting instead.
-    assert_gpu_and_cpu_are_equal_collect(do_it, conf={'spark.sql.ansi.enabled': False})
+    try:
+        assert_gpu_and_cpu_are_equal_collect(do_it, conf={'spark.sql.ansi.enabled': False})
+    except AssertionError as error:
+        if isinstance(data_gen.data_type.valueType, DecimalType):
+            raise _MapZipWithDecimalKnownIssue() from error
+        raise
+    except Py4JJavaError as error:
+        message = str(error)
+        is_known_decimal_failure = (
+            isinstance(data_gen.data_type.valueType, DecimalType)
+            and 'java.lang.AssertionError:' in message
+            and 'value at ' in message
+            and ' is null' in message)
+        if is_known_decimal_failure:
+            raise _MapZipWithDecimalKnownIssue() from error
+        raise
 
 @pytest.mark.parametrize('data_gen', [MapGen(IntegerGen(False, min_val=-5, max_val=5), ArrayGen(int_gen, max_length=5), min_length=7)], ids=idfn)
 @allow_non_gpu(*non_utc_allow)
