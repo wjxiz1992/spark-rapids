@@ -18,7 +18,8 @@ from asserts import *
 from conftest import is_not_utc
 from data_gen import *
 from conftest import is_databricks_runtime
-from marks import allow_non_gpu, datagen_overrides, disable_ansi_mode, ignore_order
+from marks import allow_non_gpu, datagen_overrides, disable_ansi_mode, ignore_order, \
+    validate_execs_in_gpu_plan
 from spark_session import *
 from pyspark.sql.functions import create_map, col, lit, row_number
 from pyspark.sql.types import *
@@ -852,7 +853,23 @@ def test_sql_map_scalars(query):
 
 @pytest.mark.parametrize('data_gen', map_gens_sample + maps_with_binary_value \
                          + [MapGen(f(nullable=False, min_val=-10, max_val=10), f(), min_length=10) for f in [ByteGen, ShortGen, IntegerGen, LongGen]] \
-                         + [MapGen(StringGen(pattern='key_[0-9]', nullable=False), StringGen(), min_length=10)], ids=idfn)
+                         + [MapGen(StringGen(pattern='key_[0-9]', nullable=False), StringGen(), min_length=10)]
+                         + [
+                             pytest.param(
+                                 MapGen(DecimalGen(12, 2, nullable=False),
+                                        DecimalGen(12, 2, nullable=False), nullable=False),
+                                 marks=[
+                                     pytest.mark.xfail(
+                                         reason='https://github.com/NVIDIA/cudf-spark/issues/15783'),
+                                     validate_execs_in_gpu_plan('GpuProjectExec')]),
+                             pytest.param(
+                                 MapGen(DecimalGen(20, 2, nullable=False),
+                                        DecimalGen(20, 2, nullable=False), nullable=False),
+                                 marks=[
+                                     pytest.mark.xfail(
+                                         reason='https://github.com/NVIDIA/cudf-spark/issues/15783'),
+                                     validate_execs_in_gpu_plan('GpuProjectExec')])
+                         ], ids=idfn)
 @allow_non_gpu(*non_utc_allow)
 def test_map_zip_with(data_gen):
     def do_it(spark):
