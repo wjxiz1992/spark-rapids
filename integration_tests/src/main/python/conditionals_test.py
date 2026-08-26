@@ -18,7 +18,7 @@ from asserts import assert_gpu_and_cpu_are_equal_collect, assert_gpu_and_cpu_are
 from data_gen import *
 from spark_session import is_before_spark_320, is_jvm_charset_utf8, is_before_spark_400
 from pyspark.sql.types import *
-from marks import datagen_overrides, allow_non_gpu, disable_ansi_mode
+from marks import datagen_overrides, allow_non_gpu, disable_ansi_mode, validate_execs_in_gpu_plan
 import pyspark.sql.functions as f
 
 # mark this test as ci_1 for mvn verify sanity check in pre-merge CI
@@ -138,7 +138,13 @@ def test_nvl(data_gen):
 # in both cpu and gpu runs.
 #      E: java.lang.AssertionError: assertion failed: each serializer expression should contain\
 #         at least one `BoundReference`
-@pytest.mark.parametrize('data_gen', all_gens + all_nested_gens_nonempty_struct + map_gens_sample, ids=idfn)
+@pytest.mark.parametrize(
+    'data_gen', all_gens + [
+        pytest.param(
+            DayTimeIntervalGen(),
+            marks=validate_execs_in_gpu_plan('GpuProjectExec'))
+    ] +
+    all_nested_gens_nonempty_struct + map_gens_sample, ids=idfn)
 def test_coalesce(data_gen):
     num_cols = 20
     s1 = with_cpu_session(
@@ -151,6 +157,19 @@ def test_coalesce(data_gen):
     assert_gpu_and_cpu_are_equal_collect(
             lambda spark : gen_df(spark, gen).select(
                 f.coalesce(*command_args)))
+
+@validate_execs_in_gpu_plan('GpuProjectExec')
+def test_coalesce_year_month_interval():
+    # PySpark 3.3 cannot deserialize a YearMonthIntervalType result, so cast the
+    # coalesce result to its month count after the expression has been evaluated.
+    # Build nullable inputs through the existing GPU-supported interval multiply path.
+    assert_gpu_and_cpu_are_equal_collect(
+        lambda spark: spark.range(4).selectExpr(
+            "INTERVAL '0-1' YEAR TO MONTH * "
+            "CASE id WHEN 0 THEN 1 WHEN 3 THEN -13 END AS a",
+            "INTERVAL '0-1' YEAR TO MONTH * "
+            "CASE id WHEN 1 THEN 2 WHEN 3 THEN 0 END AS b")
+        .selectExpr("CAST(coalesce(a, b) AS BIGINT)"))
 
 def test_coalesce_constant_output():
     # Coalesce can allow a constant value as output. Technically Spark should mark this
