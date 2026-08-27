@@ -158,18 +158,28 @@ def test_coalesce(data_gen):
             lambda spark : gen_df(spark, gen).select(
                 f.coalesce(*command_args)))
 
-@validate_execs_in_gpu_plan('GpuProjectExec')
 def test_coalesce_year_month_interval():
     # PySpark 3.3 cannot deserialize a YearMonthIntervalType result, so cast the
     # coalesce result to its month count after the expression has been evaluated.
-    # Build nullable inputs through the existing GPU-supported interval multiply path.
-    assert_gpu_and_cpu_are_equal_collect(
-        lambda spark: spark.range(4).selectExpr(
+    # Keep the interval producer and Coalesce in separate projects. Otherwise,
+    # Databricks can collapse them and rewrite the integer CaseWhen + multiply
+    # into an unsupported interval-valued CaseWhen, obscuring the Coalesce path.
+    def do_it(spark):
+        return spark.range(4).selectExpr(
             "INTERVAL '0-1' YEAR TO MONTH * "
             "CASE id WHEN 0 THEN 1 WHEN 3 THEN -13 END AS a",
             "INTERVAL '0-1' YEAR TO MONTH * "
-            "CASE id WHEN 1 THEN 2 WHEN 3 THEN 0 END AS b")
-        .selectExpr("CAST(coalesce(a, b) AS BIGINT)"))
+            "CASE id WHEN 1 THEN 2 WHEN 3 THEN 0 END AS b") \
+            .selectExpr("CAST(coalesce(a, b) AS BIGINT)")
+
+    assert_cpu_and_gpu_are_equal_collect_with_capture(
+        do_it,
+        exist_classes='GpuCoalesce',
+        conf={
+            'spark.sql.optimizer.excludedRules':
+                'org.apache.spark.sql.catalyst.optimizer.CollapseProject',
+            'spark.sql.adaptive.enabled': 'false'
+        })
 
 def test_coalesce_constant_output():
     # Coalesce can allow a constant value as output. Technically Spark should mark this
