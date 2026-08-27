@@ -19,9 +19,32 @@
 spark-rapids-shim-json-lines ***/
 package org.apache.spark.sql.rapids.suites
 
+import org.apache.parquet.column.ParquetProperties
+import org.apache.parquet.hadoop.ParquetOutputFormat
+
 import org.apache.spark.sql.execution.datasources.{OrcCodecSuite, ParquetCodecSuite}
+import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.rapids.utils.RapidsSQLTestsTrait
 
-class RapidsParquetCodecSuite extends ParquetCodecSuite with RapidsSQLTestsTrait
+class RapidsParquetCodecSuite extends ParquetCodecSuite with RapidsSQLTestsTrait {
+
+  testRapids("write and read - file source parquet - codec: lz4 - v2 pages") {
+    val activeSpark = spark
+    import activeSpark.implicits._
+
+    val data = Seq.tabulate(4096) { i =>
+      (i, if (i % 3 == 0) None else Some(s"value-$i"))
+    }.toDF("id", "value")
+    withSQLConf(
+      SQLConf.PARQUET_COMPRESSION.key -> "lz4",
+      ParquetOutputFormat.WRITER_VERSION ->
+        ParquetProperties.WriterVersion.PARQUET_2_0.toString) {
+      withTempPath { dir =>
+        data.repartition(3).write.parquet(dir.getCanonicalPath)
+        checkAnswer(activeSpark.read.parquet(dir.getCanonicalPath), data)
+      }
+    }
+  }
+}
 
 class RapidsOrcCodecSuite extends OrcCodecSuite with RapidsSQLTestsTrait
