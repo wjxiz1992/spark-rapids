@@ -16,6 +16,9 @@
 
 package com.nvidia.spark.rapids.shims
 
+import java.io.FileNotFoundException
+import java.util.concurrent.ExecutionException
+
 import com.nvidia.spark.rapids.{FileSystemBytesReadTracker, MetricsBatchIterator, PartitionIterator}
 import com.nvidia.spark.rapids.ScalableTaskCompletion.onTaskCompletion
 
@@ -33,7 +36,8 @@ import org.apache.spark.sql.vectorized.ColumnarBatch
 class GpuDataSourceRDD(
     sc: SparkContext,
     @transient private val inputPartitions: Seq[Seq[InputPartition]],
-    partitionReaderFactory: PartitionReaderFactory
+    partitionReaderFactory: PartitionReaderFactory,
+    includeRefreshHint: Boolean = false
 ) extends RDD[InternalRow](sc, Nil) {
   import GpuDataSourceRDD.GpuDataSourceRDDPartition
 
@@ -60,12 +64,21 @@ class GpuDataSourceRDD(
       private var currentIter: Option[Iterator[Object]] = None
       private var currentIndex: Int = 0
 
-      override def hasNext: Boolean = {
+      override def hasNext: Boolean = try {
         val result = currentIter.exists(_.hasNext) || advanceToNextIter()
         if (!result) {
           bytesReadTracker.update()
         }
         result
+      } catch {
+        case e: FileNotFoundException =>
+          throw GpuDataSourceRDD.withRecoveryHint(e, includeRefreshHint)
+        case e: ExecutionException =>
+          e.getCause match {
+            case cause: FileNotFoundException =>
+              throw GpuDataSourceRDD.withRecoveryHint(cause, includeRefreshHint)
+            case _ => throw e
+          }
       }
 
       override def next(): Object = {
@@ -112,6 +125,33 @@ class GpuDataSourceRDD(
 }
 
 object GpuDataSourceRDD {
+  private val RECREATE_HINT = "recreating the Dataset/DataFrame involved"
+  private val REFRESH_HINT = "REFRESH TABLE"
+
+  private def withRecoveryHint(
+      e: FileNotFoundException,
+      includeRefreshHint: Boolean): FileNotFoundException = {
+    val message = Option(e.getMessage).getOrElse(e.toString)
+    if (message.contains(RECREATE_HINT) &&
+        (!includeRefreshHint || message.contains(REFRESH_HINT))) {
+      e
+    } else {
+      val recoveryHint = if (includeRefreshHint) {
+        "It is possible the underlying files have been updated. " +
+          "You can explicitly invalidate the cache in Spark by " +
+          "running 'REFRESH TABLE tableName' command in SQL or " +
+          "by recreating the Dataset/DataFrame involved."
+      } else {
+        "It is possible the underlying files have been updated. " +
+          "You can explicitly invalidate the cache in Spark by " +
+          "recreating the Dataset/DataFrame involved."
+      }
+      val enrichedException = new FileNotFoundException(s"$message\n$recoveryHint")
+      enrichedException.initCause(e)
+      enrichedException
+    }
+  }
+
   private case class GpuDataSourceRDDPartition(
       override val index: Int,
       inputPartitions: Seq[InputPartition]) extends Partition
@@ -119,7 +159,9 @@ object GpuDataSourceRDD {
   def apply(
       sc: SparkContext,
       inputPartitions: Seq[InputPartition],
-      partitionReaderFactory: PartitionReaderFactory): GpuDataSourceRDD = {
-    new GpuDataSourceRDD(sc, inputPartitions.map(Seq(_)), partitionReaderFactory)
+      partitionReaderFactory: PartitionReaderFactory,
+      includeRefreshHint: Boolean = false): GpuDataSourceRDD = {
+    new GpuDataSourceRDD(
+      sc, inputPartitions.map(Seq(_)), partitionReaderFactory, includeRefreshHint)
   }
 }
