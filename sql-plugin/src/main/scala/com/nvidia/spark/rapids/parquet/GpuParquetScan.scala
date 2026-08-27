@@ -55,7 +55,8 @@ import org.apache.parquet.column.ColumnDescriptor
 import org.apache.parquet.filter2.predicate.FilterApi
 import org.apache.parquet.format.Util
 import org.apache.parquet.format.converter.ParquetMetadataConverter
-import org.apache.parquet.hadoop.{CodecFactory, ParquetFileReader, ParquetInputFormat}
+import org.apache.parquet.hadoop.{CodecFactory, ParquetFileReader, ParquetInputFormat,
+  ParquetOutputFormat, ParquetWriter}
 import org.apache.parquet.hadoop.ParquetFileWriter.MAGIC
 import org.apache.parquet.hadoop.metadata._
 import org.apache.parquet.io.{InputFile, SeekableInputStream => ParquetSeekableInputStream}
@@ -2063,7 +2064,9 @@ trait ParquetPartitionReaderBase extends Logging with ScanWithMetrics
     val endPos = column.getStartingPos + column.getTotalSize
     in.seek(column.getStartingPos)
     var inData: Option[HostMemoryBuffer] = None
-    val codecFactory = new CodecFactory(conf, copyBufferSize)
+    val codecBufferSize = conf.getInt(
+      ParquetOutputFormat.PAGE_SIZE, ParquetWriter.DEFAULT_PAGE_SIZE)
+    val codecFactory = new CodecFactory(conf, codecBufferSize)
     try {
       val decompressor = codecFactory.getDecompressor(CompressionCodecName.LZ4)
       while (in.getPos < endPos) {
@@ -3843,7 +3846,15 @@ object ParquetPartitionReader {
       block: BlockMetaData,
       compressCfg: CpuCompressionConfig): Long = {
     block.getColumns.asScala.map { c =>
-      if (compressCfg.shouldDecompress(c.getCodec)) {
+      if (c.getCodec == CompressionCodecName.LZ4 && compressCfg.decompressLz4Cpu) {
+        // Legacy LZ4 pages can be much smaller than the default Parquet page size, so a
+        // page-count estimate based on uncompressed bytes can underallocate. Rewriting can
+        // grow a page header by at most four bytes for compressed_page_size plus one byte
+        // for Data Page V2's optional is_compressed flag. The original encoded page header
+        // is larger than that, so the complete on-disk column size is a conservative,
+        // page-count-independent upper bound for all header growth.
+        Math.addExact(c.getTotalUncompressedSize, c.getTotalSize)
+      } else if (compressCfg.shouldDecompress(c.getCodec)) {
         // Page headers need to be rewritten when CPU decompresses, and that may
         // increase the size of the page header. Guess how many pages there may be
         // and add a fudge factor per page to try to avoid a late realloc+copy.
