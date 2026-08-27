@@ -2120,7 +2120,9 @@ trait ParquetPartitionReaderBase extends Logging with ScanWithMetrics
                   s"compressed=$compressedDataSize, uncompressed=$uncompressedDataSize")
             }
             if (inData.map(_.getLength).getOrElse(0L) < compressedDataSize) {
-              inData.foreach(_.close())
+              val oldInData = inData
+              inData = None
+              oldInData.foreach(_.close())
               inData = Some(HostMemoryBuffer.allocate(compressedDataSize, false))
             }
             inData.foreach { compressedBuffer =>
