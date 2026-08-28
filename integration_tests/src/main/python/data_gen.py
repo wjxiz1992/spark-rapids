@@ -420,11 +420,20 @@ NEG_FLOAT_NAN_MIN_VALUE = struct.unpack('f', struct.pack('I', 0xffffffff))[0]
 NEG_FLOAT_NAN_MAX_VALUE = struct.unpack('f', struct.pack('I', 0xff800001))[0]
 POS_FLOAT_NAN_MIN_VALUE = struct.unpack('f', struct.pack('I', 0x7f800001))[0]
 POS_FLOAT_NAN_MAX_VALUE = struct.unpack('f', struct.pack('I', 0x7fffffff))[0]
+
+
+def _normalize_negative_zero(value):
+    if value == 0.0 and math.copysign(1.0, value) < 0:
+        return 0.0
+    return value
+
+
 class FloatGen(DataGen):
     """Generate floats, which some built in corner cases."""
     def __init__(self, nullable=True,
-            no_nans=False, special_cases=None):
+            no_nans=False, special_cases=None, normalize_negative_zero=False):
         self._no_nans = no_nans
+        self._normalize_negative_zero = normalize_negative_zero
         if special_cases is None:
             special_cases = [FLOAT_MIN, FLOAT_MAX, 0.0, -0.0, 1.0, -1.0]
             if not no_nans:
@@ -440,7 +449,14 @@ class FloatGen(DataGen):
         return v
     
     def _cache_repr(self):
-        return super()._cache_repr() + '(' + str(self._no_nans) + ')'
+        return super()._cache_repr() + '({},{})'.format(
+            self._no_nans, self._normalize_negative_zero)
+
+    def gen(self, force_no_nulls=False):
+        value = super().gen(force_no_nulls=force_no_nulls)
+        if self._normalize_negative_zero:
+            return _normalize_negative_zero(value)
+        return value
 
     def start(self, rand):
         def gen_float():
@@ -461,10 +477,11 @@ POS_DOUBLE_NAN_MAX_VALUE = struct.unpack('d', struct.pack('L', 0x7ffffffffffffff
 class DoubleGen(DataGen):
     """Generate doubles, which some built in corner cases."""
     def __init__(self, min_exp=DOUBLE_MIN_EXP, max_exp=DOUBLE_MAX_EXP, no_nans=False,
-            nullable=True, special_cases = None):
+            nullable=True, special_cases = None, normalize_negative_zero=False):
         self._min_exp = min_exp
         self._max_exp = max_exp
         self._no_nans = no_nans
+        self._normalize_negative_zero = normalize_negative_zero
         self._use_full_range = (self._min_exp == DOUBLE_MIN_EXP) and (self._max_exp == DOUBLE_MAX_EXP)
         if special_cases is None:
             special_cases = [
@@ -487,7 +504,14 @@ class DoubleGen(DataGen):
         super().__init__(DoubleType(), nullable=nullable, special_cases=special_cases)
 
     def _cache_repr(self):
-        return super()._cache_repr() + '(' + str(self._min_exp) + ',' + str(self._max_exp) + ',' + str(self._no_nans) + ')'
+        return super()._cache_repr() + '({},{},{},{})'.format(
+            self._min_exp, self._max_exp, self._no_nans, self._normalize_negative_zero)
+
+    def gen(self, force_no_nulls=False):
+        value = super().gen(force_no_nulls=force_no_nulls)
+        if self._normalize_negative_zero:
+            return _normalize_negative_zero(value)
+        return value
 
     @staticmethod
     def make_from(sign, exp, fraction):
