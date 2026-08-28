@@ -1448,23 +1448,28 @@ def test_hash_groupby_collect_partial_replace_with_distinct_fallback(data_gen,
 
 # Spark before 3.5.2 can lose percentile counts when +0.0 and -0.0 are mixed.
 # See https://issues.apache.org/jira/browse/SPARK-45599 and issue #12886.
-_exact_percentile_fp_gen_kwargs = {
-    'normalize_negative_zero': is_before_spark_352()
-}
+def _normalize_negative_zero(value):
+    return 0.0 if value == 0.0 else value
+
+
+def _exact_percentile_fp_gen(gen_class):
+    if is_before_spark_352():
+        return ConvertGen(gen_class(nullable=False), _normalize_negative_zero)
+    return gen_class()
 
 exact_percentile_data_gen = [
     ByteGen(), ShortGen(), IntegerGen(), LongGen(),
-    FloatGen(**_exact_percentile_fp_gen_kwargs),
-    DoubleGen(**_exact_percentile_fp_gen_kwargs),
+    _exact_percentile_fp_gen(FloatGen),
+    _exact_percentile_fp_gen(DoubleGen),
     RepeatSeqGen(ByteGen(), length=100),
     RepeatSeqGen(ShortGen(), length=100),
     RepeatSeqGen(IntegerGen(), length=100),
     RepeatSeqGen(LongGen(), length=100),
-    RepeatSeqGen(FloatGen(**_exact_percentile_fp_gen_kwargs), length=100),
-    RepeatSeqGen(DoubleGen(**_exact_percentile_fp_gen_kwargs), length=100),
-    FloatGen(**_exact_percentile_fp_gen_kwargs).with_special_case(math.nan, 500.0)
+    RepeatSeqGen(_exact_percentile_fp_gen(FloatGen), length=100),
+    RepeatSeqGen(_exact_percentile_fp_gen(DoubleGen), length=100),
+    _exact_percentile_fp_gen(FloatGen).with_special_case(math.nan, 500.0)
     .with_special_case(math.inf, 500.0),
-    DoubleGen(**_exact_percentile_fp_gen_kwargs).with_special_case(math.nan, 500.0)
+    _exact_percentile_fp_gen(DoubleGen).with_special_case(math.nan, 500.0)
     .with_special_case(math.inf, 500.0)]
 
 exact_percentile_reduction_data_gen = [
@@ -1519,7 +1524,7 @@ exact_percentile_reduction_cpu_fallback_data_gen = [
     [('val', data_gen),
      ('freq', LongGen(min_val=0, max_val=1000000, nullable=False)
       .with_special_case(0, weight=100))]
-    for data_gen in [IntegerGen(), DoubleGen(**_exact_percentile_fp_gen_kwargs)]]
+    for data_gen in [IntegerGen(), _exact_percentile_fp_gen(DoubleGen)]]
 
 def _assert_exact_percentile_reduction_partial_fallback_to_cpu(
         data_gen, replace_mode, use_obj_hash_agg):
@@ -1664,11 +1669,11 @@ def _exact_percentile_groupby_cpu_fallback_spark500_data_gen(data_gen):
 
 exact_percentile_groupby_cpu_fallback_data_gen = [
     _exact_percentile_groupby_cpu_fallback_gen(data_gen)
-    for data_gen in [IntegerGen(), DoubleGen(**_exact_percentile_fp_gen_kwargs)]]
+    for data_gen in [IntegerGen(), _exact_percentile_fp_gen(DoubleGen)]]
 
 exact_percentile_groupby_cpu_fallback_spark500_data_gen = [
     _exact_percentile_groupby_cpu_fallback_spark500_data_gen(data_gen)
-    for data_gen in [IntegerGen(), DoubleGen(**_exact_percentile_fp_gen_kwargs)]]
+    for data_gen in [IntegerGen(), _exact_percentile_fp_gen(DoubleGen)]]
 
 @ignore_order
 @pytest.mark.skipif(is_spark_500_or_later(),
