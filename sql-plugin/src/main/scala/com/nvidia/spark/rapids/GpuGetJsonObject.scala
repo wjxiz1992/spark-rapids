@@ -68,10 +68,13 @@ object JsonPathParser extends RegexParsers {
       Subscript :: operand :: Nil
     }
 
+  private val legacyNamedPartRegexp = "[^\\'\\?]+"
+  private val fixedNamedPartRegexp = "[^\\']+"
+
   // parse `.name` or `['name']` child expressions
-  def named: Parser[List[PathInstruction]] =
+  private def named(partRegexpInNamed: String): Parser[List[PathInstruction]] =
     for {
-      name <- '.' ~> "[^\\.\\[]+".r | "['" ~> GetJsonObjectShim.partRegexpInNamed.r <~ "']"
+      name <- '.' ~> "[^\\.\\[]+".r | "['" ~> partRegexpInNamed.r <~ "']"
     } yield {
       Key :: Named(name) :: Nil
     }
@@ -80,16 +83,25 @@ object JsonPathParser extends RegexParsers {
   def wildcard: Parser[List[PathInstruction]] =
     (".*" | "['*']") ^^^ List(Wildcard)
 
-  def node: Parser[List[PathInstruction]] =
+  private def node(partRegexpInNamed: String): Parser[List[PathInstruction]] =
     wildcard |
-      named |
+      named(partRegexpInNamed) |
       subscript
 
-  val expression: Parser[List[PathInstruction]] = {
-    phrase(root ~> rep(node) ^^ (x => x.flatten))
+  private def pathExpression(partRegexpInNamed: String): Parser[List[PathInstruction]] = {
+    phrase(root ~> rep(node(partRegexpInNamed)) ^^ (x => x.flatten))
   }
 
-  def parse(str: String): Option[List[PathInstruction]] = {
+  private lazy val legacyPathExpression = pathExpression(legacyNamedPartRegexp)
+  private lazy val fixedPathExpression = pathExpression(fixedNamedPartRegexp)
+
+  def parse(str: String, allowQuestionMarkInQuotedName: Boolean):
+      Option[List[PathInstruction]] = {
+    val expression = if (allowQuestionMarkInQuotedName) {
+      fixedPathExpression
+    } else {
+      legacyPathExpression
+    }
     this.parseAll(expression, str) match {
       case Success(result, _) =>
         Some(result)
@@ -156,6 +168,29 @@ object JsonPathParser extends RegexParsers {
   }
 }
 
+object GpuGetJsonObjectMeta {
+  private[rapids] val UNKNOWN_QUESTION_MARK_SUPPORT_REASON =
+    "Could not determine whether this Spark runtime accepts question marks in quoted " +
+      "get_json_object paths"
+
+  private[rapids] def parseLiteralPath(
+      value: Any,
+      allowQuestionMarkInQuotedName: Boolean): Option[List[PathInstruction]] = {
+    Option(value).map(_.asInstanceOf[UTF8String].toString).flatMap { path =>
+      JsonPathParser.parse(path, allowQuestionMarkInQuotedName)
+    }
+  }
+
+  private[rapids] def unsupportedReason(
+      quotedQuestionMarkSupport: Option[Boolean]): Option[String] = {
+    if (quotedQuestionMarkSupport.isDefined) {
+      None
+    } else {
+      Some(UNKNOWN_QUESTION_MARK_SUPPORT_REASON)
+    }
+  }
+}
+
 class GpuGetJsonObjectMeta(
     expr: GetJsonObject,
     conf: RapidsConf,
@@ -163,22 +198,31 @@ class GpuGetJsonObjectMeta(
     rule: DataFromReplacementRule
   ) extends BinaryExprMeta[GetJsonObject](expr, conf, parent, rule) {
 
+  private val quotedQuestionMarkSupport = GetJsonObjectShim.quotedQuestionMarkSupport
+
   override def tagExprForGpu(): Unit = {
-    val lit = GpuOverrides.extractLit(expr.right)
-    lit.foreach { l =>
-      val instructions = JsonPathParser.parse(l.value.asInstanceOf[UTF8String].toString)
-      val updated = instructions.map(JsonPathParser.filterInstructionsForJni)
-      if (updated.exists(JsonPathParser.fallbackCheck)) {
-        willNotWorkOnGpu(s"get_json_object on GPU does not support more " +
-          s"than ${JsonPathParser.MAX_PATH_DEPTH} nested paths." +
-          instructions.map(i => s" (Found ${i.length})").getOrElse(""))
+    GpuGetJsonObjectMeta.unsupportedReason(quotedQuestionMarkSupport).foreach(willNotWorkOnGpu)
+    quotedQuestionMarkSupport.foreach { allowQuestionMark =>
+      val lit = GpuOverrides.extractLit(expr.right)
+      lit.foreach { l =>
+        val instructions =
+          GpuGetJsonObjectMeta.parseLiteralPath(l.value, allowQuestionMark)
+        val updated = instructions.map(JsonPathParser.filterInstructionsForJni)
+        if (updated.exists(JsonPathParser.fallbackCheck)) {
+          willNotWorkOnGpu(s"get_json_object on GPU does not support more " +
+            s"than ${JsonPathParser.MAX_PATH_DEPTH} nested paths." +
+            instructions.map(i => s" (Found ${i.length})").getOrElse(""))
+        }
       }
     }
   }
 
   override def convertToGpu(lhs: Expression, rhs: Expression): GpuExpression = {
+    val allowQuestionMark = quotedQuestionMarkSupport.getOrElse {
+      throw new IllegalStateException(GpuGetJsonObjectMeta.UNKNOWN_QUESTION_MARK_SUPPORT_REASON)
+    }
     GpuGetJsonObject(lhs, rhs)(
-      conf.testGetJsonObjectSavePath, conf.testGetJsonObjectSaveRows)
+      conf.testGetJsonObjectSavePath, conf.testGetJsonObjectSaveRows, allowQuestionMark)
   }
 }
 
@@ -216,13 +260,15 @@ case class GpuMultiGetJsonObject(json: Expression,
     val validPaths = validPathsWithIndexes.map(_._1)
     withResource(new Array[ColumnVector](validPaths.length)) { validPathColumns =>
       withResource(json.columnarEval(batch)) { input =>
-        // Last argument -1 indicates to use automatically calculated parallelism
-        withResource(JSONUtils.getJsonObjectMultiplePaths(input.getBase,
-          java.util.Arrays.asList(validPaths: _*), 4 * targetBatchSize,
-          -1)) { chunkedResult =>
-          chunkedResult.foreach { cr =>
-            validPathColumns(validPathsIndex) = cr.incRefCount()
-            validPathsIndex += 1
+        if (validPaths.nonEmpty) {
+          // Last argument -1 indicates to use automatically calculated parallelism
+          withResource(JSONUtils.getJsonObjectMultiplePaths(input.getBase,
+            java.util.Arrays.asList(validPaths: _*), 4 * targetBatchSize,
+            -1)) { chunkedResult =>
+            chunkedResult.foreach { cr =>
+              validPathColumns(validPathsIndex) = cr.incRefCount()
+              validPathsIndex += 1
+            }
           }
         }
 
@@ -311,7 +357,8 @@ class GetJsonObjectCombiner(private val exp: GpuGetJsonObject) extends GpuExpres
             case u: UTF8String => u.toString
             case _ => null.asInstanceOf[String]
           }
-          val pathInstructions = parseJsonPath(str)
+          val pathInstructions =
+            parseJsonPath(str, e.allowQuestionMarkInQuotedName)
           if (hasSeparateWildcard(pathInstructions)) {
             // If has separate wildcard path, should return all nulls
             None
@@ -336,18 +383,22 @@ class GetJsonObjectCombiner(private val exp: GpuGetJsonObject) extends GpuExpres
 }
 
 object GpuGetJsonObject {
-  def parseJsonPath(path: GpuScalar): Option[List[PathInstruction]] = {
+  def parseJsonPath(
+      path: GpuScalar,
+      allowQuestionMarkInQuotedName: Boolean): Option[List[PathInstruction]] = {
     if (path.isValid) {
       val pathStr = path.getValue.toString
-      JsonPathParser.parse(pathStr)
+      JsonPathParser.parse(pathStr, allowQuestionMarkInQuotedName)
     } else {
       None
     }
   }
 
-  def parseJsonPath(pathStr: String): Option[List[PathInstruction]] = {
+  def parseJsonPath(
+      pathStr: String,
+      allowQuestionMarkInQuotedName: Boolean): Option[List[PathInstruction]] = {
     if (pathStr != null) {
-      JsonPathParser.parse(pathStr)
+      JsonPathParser.parse(pathStr, allowQuestionMarkInQuotedName)
     } else {
       None
     }
@@ -392,7 +443,8 @@ case class GpuGetJsonObject(
      json: Expression,
      path: Expression)(
   val savePathForVerify: Option[String],
-  val saveRowsForVerify: Int)
+  val saveRowsForVerify: Int,
+  val allowQuestionMarkInQuotedName: Boolean)
     extends GpuBinaryExpressionArgsAnyScalar
         with ExpectsInputTypes
         with GpuCombinable {
@@ -405,8 +457,10 @@ case class GpuGetJsonObject(
   }
   val seed = System.nanoTime()
 
-  override def otherCopyArgs: Seq[AnyRef] = Seq(savePathForVerify,
-    saveRowsForVerify.asInstanceOf[java.lang.Integer])
+  override def otherCopyArgs: Seq[AnyRef] = Seq(
+    savePathForVerify,
+    saveRowsForVerify.asInstanceOf[java.lang.Integer],
+    allowQuestionMarkInQuotedName.asInstanceOf[java.lang.Boolean])
 
   override def left: Expression = json
   override def right: Expression = path
@@ -420,7 +474,7 @@ case class GpuGetJsonObject(
 
   override def doColumnar(lhs: GpuColumnVector, rhs: GpuScalar): ColumnVector = {
     val fromGpu = cachedInstructions.getOrElse {
-      val pathInstructions = parseJsonPath(rhs)
+      val pathInstructions = parseJsonPath(rhs, allowQuestionMarkInQuotedName)
       val checkedPathInstructions = if (hasSeparateWildcard(pathInstructions)) {
         // If has separate wildcard path, should return all nulls
         None

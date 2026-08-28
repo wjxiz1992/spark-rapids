@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * Copyright (c) 2026, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,25 +14,20 @@
  * limitations under the License.
  */
 
-/*** spark-rapids-shim-json-lines
-{"spark": "400"}
-{"spark": "400db173"}
-{"spark": "401"}
-{"spark": "402"}
-{"spark": "403"}
-{"spark": "404"}
-{"spark": "411"}
-{"spark": "412"}
-{"spark": "413"}
-{"spark": "420"}
-{"spark": "500"}
-spark-rapids-shim-json-lines ***/
-
 package com.nvidia.spark.rapids.shims
 
-object GetJsonObjectShim {
-  /**
-   * Spark 4 includes SPARK-46761, which accepts question marks in quoted path names.
-   */
-  def quotedQuestionMarkSupport: Option[Boolean] = Some(true)
+import scala.util.Try
+
+import org.apache.spark.unsafe.types.UTF8String
+
+private[rapids] object GetJsonObjectRuntimeSemantics {
+  private val ExpectedQuestionMarkValue = "QUESTION"
+
+  def classifyQuotedQuestionMarkResult(result: => Any): Option[Boolean] = {
+    Try(result).toOption match {
+      case Some(null) => Some(false)
+      case Some(value: UTF8String) if value.toString == ExpectedQuestionMarkValue => Some(true)
+      case _ => None
+    }
+  }
 }

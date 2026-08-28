@@ -41,17 +41,22 @@
 spark-rapids-shim-json-lines ***/
 package com.nvidia.spark.rapids.shims
 
+import org.apache.spark.sql.catalyst.expressions.{GetJsonObject, Literal}
+import org.apache.spark.sql.types.StringType
+import org.apache.spark.unsafe.types.UTF8String
+
 object GetJsonObjectShim {
+  private lazy val runtimeQuotedQuestionMarkSupport: Option[Boolean] = {
+    val json = Literal.create(UTF8String.fromString("""{"?":"QUESTION"}"""), StringType)
+    val path = Literal.create(UTF8String.fromString("$['?']"), StringType)
+    GetJsonObjectRuntimeSemantics.classifyQuotedQuestionMarkResult {
+      GetJsonObject(json, path).eval(null)
+    }
+  }
+
   /**
-   * Return a shim string for a part in named Regexp.
-   * For Spark versions before 400, named Regexp is:
-   *   name <- '.' ~> "[^\\.\\[]+".r | "['" ~> "[^\\'\\?]+".r <~ "']"
-   * For Spark versions 400 and 400+, named Regexp is:
-   *   name <- '.' ~> "[^\\.\\[]+".r | "['" ~> "[^\\']+".r <~ "']"
-   * This is the shim to distinct "[^\\'\\?]+" and "[^\\']+"
-   *
-   * "[^\\'\\?]+" : One or more chars which are not: ' or ?
-   * "[^\\']+"    : One or more chars which are not: '
+   * Detect whether this Spark runtime includes SPARK-46761 semantics. Some vendors backported the
+   * fix without changing the upstream Spark version, so a version check is not sufficient.
    */
-  def partRegexpInNamed: String = "[^\\'\\?]+"
+  def quotedQuestionMarkSupport: Option[Boolean] = runtimeQuotedQuestionMarkSupport
 }
