@@ -1502,5 +1502,7 @@ def test_lazy_quantifier():
             'regexp_extract(a, "((aa|bb){0,3}?).*cc", 1)',
             'regexp_extract_all(a, "(a{1,3}?)", 0)',
             'regexp_extract_all(a, "(a{1,3}?)", 1)',
+            'regexp_extract(a, "(2|a*?)", 0)',
+            'regexp_extract(a, "(2|a{1,2}?)", 0)',
             'rlike(a, "a[a-c]{1,3}?")'),
         conf=_regexp_conf)

@@ -77,7 +77,8 @@ class RegularExpressionParserSuite extends AnyFunSuite {
 
     cases.foreach { case (pattern, expectedPosition) =>
       val RegexSequence(parts) = parse(pattern)
-      val RegexRepetition(_, quantifier) = parts.head
+      val repetition @ RegexRepetition(_, quantifier) = parts.head
+      assert(repetition.position.contains(1), pattern)
       assert(quantifier.position.contains(expectedPosition), pattern)
     }
   }

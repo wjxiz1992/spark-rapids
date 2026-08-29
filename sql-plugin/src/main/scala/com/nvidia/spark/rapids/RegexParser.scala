@@ -136,6 +136,8 @@ class RegexParser(pattern: String) {
     val base = parseBase()
     base.position = Some(baseStart)
     if (!eof() && !until()) {
+      // Keep the repetition position on the base quantifier token. The quantifier itself points
+      // at a reluctant/possessive modifier when present, so diagnostics can choose either site.
       val quantifierStart = pos
       tryParseQuantifier()
         .map { quantifier =>
@@ -151,13 +153,42 @@ class RegexParser(pattern: String) {
     }
   }
 
+  /**
+   * Parse a quantifier in one of the following formats:
+   *
+   * {n}
+   * {n,}
+   * {n,m} (only valid if m >= n)
+   */
+  private def tryParseBraceQuantifier(): Option[RegexQuantifier] = {
+    // The caller restores its position when this is a literal brace rather than a quantifier.
+    consumeExpected('{')
+    consumeInt.flatMap { minLength =>
+      peek() match {
+        case Some(',') =>
+          consumeExpected(',')
+          val maxLength = consumeInt()
+          if (peek().contains('}') && maxLength.forall(_ >= minLength)) {
+            consumeExpected('}')
+            Some(QuantifierVariableLength(minLength, maxLength))
+          } else {
+            None
+          }
+        case Some('}') =>
+          consumeExpected('}')
+          Some(QuantifierFixedLength(minLength))
+        case _ =>
+          None
+      }
+    }
+  }
+
   private def tryParseQuantifier(): Option[RegexQuantifier] = {
     import RegexQuantifier._
 
     val start = pos
     val baseQuantifier = peek() match {
       case Some('{') =>
-        consumeExpected('{')
         tryParseBraceQuantifier()
       case Some(ch) if "*+?".contains(ch) =>
         consume()
@@ -394,36 +425,6 @@ class RegexParser(pattern: String) {
     characterClass
   }
 
-
-  /**
-   * Parse a quantifier in one of the following formats:
-   *
-   * {n}
-   * {n,}
-   * {n,m} (only valid if m >= n)
-   */
-  private def tryParseBraceQuantifier(): Option[RegexQuantifier] = {
-    // Assumes that '{' has already been consumed. The caller restores its position
-    // when this is a literal brace rather than a quantifier.
-    consumeInt.flatMap { minLength =>
-      peek() match {
-        case Some(',') =>
-          consumeExpected(',')
-          val maxLength = consumeInt()
-          if (peek().contains('}') && maxLength.forall(_ >= minLength)) {
-            consumeExpected('}')
-            Some(QuantifierVariableLength(minLength, maxLength))
-          } else {
-            None
-          }
-        case Some('}') =>
-          consumeExpected('}')
-          Some(QuantifierFixedLength(minLength))
-        case _ =>
-          None
-      }
-    }
-  }
 
   private def parseBackref(): Seq[RegexAST] = {
     val dollarPos = pos - 1   // position of the `$` that begins this reference
@@ -777,6 +778,8 @@ sealed case class RegexRewriteFlags(
                 RegexSplitMode   if performing a split (string_split)
  */
 class CudfRegexTranspiler(mode: RegexMode) {
+  // cuDF reads at most three count digits for a repetition.
+  // https://github.com/NVIDIA/cudf/blob/7a6f5c1a/cpp/src/strings/regex/regcomp.cpp#L684
   private val maxRepetitionCount = 999
   private val regexPunct = "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~"
   private val escapeChars = Map('n' -> '\n', 'r' -> '\r', 't' -> '\t', 'f' -> '\f', 'a' -> '\u0007',
@@ -787,7 +790,7 @@ class CudfRegexTranspiler(mode: RegexMode) {
       case QuantifierFixedLength(length, _) => length > maxRepetitionCount
       case QuantifierVariableLength(minLength, maxLength, _) =>
         minLength > maxRepetitionCount || maxLength.exists(_ > maxRepetitionCount)
-      case _ => false
+      case _: SimpleQuantifier => false
     }
   }
 
@@ -1647,7 +1650,7 @@ class CudfRegexTranspiler(mode: RegexMode) {
                 s"cuDF does not support repetition of group containing: " +
                   s"${unsupportedTerm.toRegexString}", term.position)
           }
-        case (RegexGroup(_, term), SimpleQuantifier(ch, _)) if ch == '?' =>
+        case (RegexGroup(_, term), SimpleQuantifier('?', _)) =>
           if (isEntirelyWordBoundary(term) || isEntirelyLineAnchor(term)) {
             throw new RegexUnsupportedException(
                 s"cuDF does not support repetition of: ${term.toRegexString}", term.position)
@@ -2026,18 +2029,10 @@ sealed case class RegexRepetition(a: RegexAST, quantifier: RegexQuantifier) exte
 }
 
 object RegexQuantifier {
-  sealed trait Mode {
-    def suffix: String
-  }
-  case object Greedy extends Mode {
-    override val suffix: String = ""
-  }
-  case object Reluctant extends Mode {
-    override val suffix: String = "?"
-  }
-  case object Possessive extends Mode {
-    override val suffix: String = "+"
-  }
+  sealed trait Mode
+  case object Greedy extends Mode
+  case object Reluctant extends Mode
+  case object Possessive extends Mode
 }
 
 sealed trait RegexQuantifier {
@@ -2057,16 +2052,19 @@ sealed trait RegexQuantifier {
   }
 
   final def isPossessive: Boolean = mode == Possessive
-  final def toRegexString: String = s"$baseToRegexString${mode.suffix}"
+  final def toRegexString: String = {
+    val suffix = mode match {
+      case Greedy => ""
+      case Reluctant => "?"
+      case Possessive => "+"
+    }
+    s"$baseToRegexString$suffix"
+  }
 }
 
 sealed case class SimpleQuantifier(
     ch: Char,
     mode: RegexQuantifier.Mode = RegexQuantifier.Greedy) extends RegexQuantifier {
-  def this(ch: Char, position: Int) = {
-    this(ch)
-    this.position = Some(position)
-  }
   override def minLength: Int = if (ch == '+') 1 else 0
   override protected def baseToRegexString: String = ch.toString
   override protected def copyWithMode(newMode: RegexQuantifier.Mode): RegexQuantifier =
@@ -2077,10 +2075,6 @@ sealed case class QuantifierFixedLength(
     length: Int,
     mode: RegexQuantifier.Mode = RegexQuantifier.Greedy)
     extends RegexQuantifier {
-  def this(length: Int, position: Int) = {
-    this(length)
-    this.position = Some(position)
-  }
   override def minLength: Int = length
   override protected def baseToRegexString: String = s"{$length}"
   override protected def copyWithMode(newMode: RegexQuantifier.Mode): RegexQuantifier =
@@ -2091,11 +2085,7 @@ sealed case class QuantifierVariableLength(
     minLength: Int,
     maxLength: Option[Int],
     mode: RegexQuantifier.Mode = RegexQuantifier.Greedy)
-    extends RegexQuantifier{
-  def this(minLength: Int, maxLength: Option[Int], position: Int) = {
-    this(minLength, maxLength)
-    this.position = Some(position)
-  }
+    extends RegexQuantifier {
   override protected def baseToRegexString: String = {
     maxLength match {
       case Some(max) =>
