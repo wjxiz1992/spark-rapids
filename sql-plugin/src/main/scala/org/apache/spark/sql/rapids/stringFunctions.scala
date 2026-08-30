@@ -1188,6 +1188,7 @@ object GpuRegExpUtils {
     def isASTEmptyRepetition(regex: RegexAST): Boolean = {
       regex match {
         case RegexRepetition(_, quantifier) => quantifier.minLength == 0
+        case RegexInlineFlags(_) => true
         case RegexGroup(_, term) =>
           isASTEmptyRepetition(term)
         case RegexSequence(parts) =>
