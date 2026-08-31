@@ -87,6 +87,15 @@ class GpuDataSourceRDD(
             throw new NoSuchElementException("No more elements")
           }
           currentIter.get.next()
+        } catch {
+          case e: FileNotFoundException =>
+            throw GpuDataSourceRDD.withRecoveryHint(e, includeRefreshHint)
+          case e: ExecutionException =>
+            e.getCause match {
+              case cause: FileNotFoundException =>
+                throw GpuDataSourceRDD.withRecoveryHint(cause, includeRefreshHint)
+              case _ => throw e
+            }
         } finally {
           bytesReadTracker.update()
         }
