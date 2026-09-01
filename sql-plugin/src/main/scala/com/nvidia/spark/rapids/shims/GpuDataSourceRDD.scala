@@ -37,7 +37,7 @@ class GpuDataSourceRDD(
     sc: SparkContext,
     @transient private val inputPartitions: Seq[Seq[InputPartition]],
     partitionReaderFactory: PartitionReaderFactory,
-    includeRefreshHint: Boolean = false
+    includeRefreshHint: Boolean
 ) extends RDD[InternalRow](sc, Nil) {
   import GpuDataSourceRDD.GpuDataSourceRDDPartition
 
@@ -169,7 +169,7 @@ object GpuDataSourceRDD {
       sc: SparkContext,
       inputPartitions: Seq[InputPartition],
       partitionReaderFactory: PartitionReaderFactory,
-      includeRefreshHint: Boolean = false): GpuDataSourceRDD = {
+      includeRefreshHint: Boolean): GpuDataSourceRDD = {
     new GpuDataSourceRDD(
       sc, inputPartitions.map(Seq(_)), partitionReaderFactory, includeRefreshHint)
   }

@@ -118,7 +118,8 @@ class FileSystemBytesReadTrackerSuite extends AnyFunSuite with MockitoSugar {
 
         override def supportColumnarReads(partition: InputPartition): Boolean = true
       }
-      val rdd = GpuDataSourceRDD(mock[SparkContext], Seq(inputPartition), factory)
+      val rdd = GpuDataSourceRDD(
+        mock[SparkContext], Seq(inputPartition), factory, includeRefreshHint = false)
       val iterator = rdd.compute(rdd.partitions.head, context)
 
       assert(iterator.hasNext)
@@ -165,7 +166,8 @@ class FileSystemBytesReadTrackerSuite extends AnyFunSuite with MockitoSugar {
           override def supportColumnarReads(partition: InputPartition): Boolean = true
         }
         val rdd = GpuDataSourceRDD(
-          mock[SparkContext], Seq(inputPartition), factory, includeRefreshHint)
+          mock[SparkContext], Seq(inputPartition), factory,
+          includeRefreshHint = includeRefreshHint)
         val iterator = rdd.compute(rdd.partitions.head, context)
 
         assert(iterator.hasNext)
@@ -201,7 +203,8 @@ class FileSystemBytesReadTrackerSuite extends AnyFunSuite with MockitoSugar {
 
         override def supportColumnarReads(partition: InputPartition): Boolean = true
       }
-      val rdd = GpuDataSourceRDD(mock[SparkContext], Seq(inputPartition), factory)
+      val rdd = GpuDataSourceRDD(
+        mock[SparkContext], Seq(inputPartition), factory, includeRefreshHint = false)
       val iterator = rdd.compute(rdd.partitions.head, context)
 
       assert(iterator.hasNext)
@@ -239,7 +242,8 @@ class FileSystemBytesReadTrackerSuite extends AnyFunSuite with MockitoSugar {
 
           override def supportColumnarReads(partition: InputPartition): Boolean = true
         }
-        GpuDataSourceRDD(mock[SparkContext], Seq(inputPartition), factory)
+        GpuDataSourceRDD(
+          mock[SparkContext], Seq(inputPartition), factory, includeRefreshHint = false)
       }
 
       val firstRdd = newRdd(10L)
