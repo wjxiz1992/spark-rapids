@@ -68,6 +68,8 @@ object JsonPathParser extends RegexParsers {
       Subscript :: operand :: Nil
     }
 
+  // SPARK-46761 made '?' valid in bracket-quoted names. Some pre-Spark-4 vendor runtimes
+  // backported that change, so retain both variants and select one from the runtime probe.
   private val legacyNamedPartRegexp = "[^\\'\\?]+"
   private val fixedNamedPartRegexp = "[^\\']+"
 
