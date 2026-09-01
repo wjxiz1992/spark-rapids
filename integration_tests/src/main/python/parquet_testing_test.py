@@ -53,11 +53,6 @@ _xfail_files = {
     "byte_array_decimal.parquet": "https://github.com/NVIDIA/spark-rapids/issues/8629",
     "fixed_length_byte_array.parquet": "https://github.com/rapidsai/cudf/issues/14104",
     "datapage_v2.snappy.parquet": "datapage v2 not supported by cudf",
-    "delta_binary_packed.parquet": "https://github.com/rapidsai/cudf/issues/13501",
-    "delta_byte_array.parquet": "https://github.com/rapidsai/cudf/issues/13501",
-    "delta_encoding_optional_column.parquet": "https://github.com/rapidsai/cudf/issues/13501",
-    "delta_encoding_required_column.parquet": "https://github.com/rapidsai/cudf/issues/13501",
-    "delta_length_byte_array.parquet": "https://github.com/rapidsai/cudf/issues/13501",
     "nested_structs.rust.parquet": "PySpark cannot handle year 52951",
 }
 # Spark 3.5.0 adds support for lz4_raw compression codec, but we do not support that on GPU yet
