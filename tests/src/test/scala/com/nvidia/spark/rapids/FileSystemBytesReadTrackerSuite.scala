@@ -25,7 +25,7 @@ import org.apache.hadoop.fs.{FileSystem, RawLocalFileSystem}
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatestplus.mockito.MockitoSugar
 
-import org.apache.spark.SparkContext
+import org.apache.spark.{SparkContext, SparkException}
 import org.apache.spark.sql.connector.read.{InputPartition, PartitionReader, PartitionReaderFactory}
 import org.apache.spark.sql.rapids.execution.TrampolineUtil
 import org.apache.spark.sql.rapids.metrics.source.MockTaskContext
@@ -130,10 +130,15 @@ class FileSystemBytesReadTrackerSuite extends AnyFunSuite with MockitoSugar {
     }
   }
 
+  private val missingFilePath = "file:/missing%20ORC.orc"
+
   Seq(
-    ("direct V2", false, () => new FileNotFoundException("missing ORC file")),
+    ("direct V2", false,
+      () => GpuFileNotFoundException(
+        missingFilePath, new FileNotFoundException("missing ORC file"))),
     ("wrapped V1", true,
-      () => new ExecutionException(new FileNotFoundException("missing ORC file")))
+      () => new ExecutionException(GpuFileNotFoundException(
+        missingFilePath, new FileNotFoundException("missing ORC file"))))
   ).foreach { case (name, includeRefreshHint, failure) =>
     test(s"GPU datasource RDD enriches next() missing-file failures - $name") {
       withTaskContext { context =>
@@ -171,9 +176,19 @@ class FileSystemBytesReadTrackerSuite extends AnyFunSuite with MockitoSugar {
         val iterator = rdd.compute(rdd.partitions.head, context)
 
         assert(iterator.hasNext)
-        val error = intercept[FileNotFoundException](iterator.next())
-        assert(error.getMessage.contains("recreating the Dataset/DataFrame involved"))
-        assert(error.getMessage.contains("REFRESH TABLE") === includeRefreshHint)
+        val error = intercept[Exception](iterator.next())
+        if (VersionUtils.isSpark400OrLater) {
+          val sparkError = error.asInstanceOf[SparkException]
+          val condition = sparkError.getClass.getMethod("getCondition").invoke(sparkError)
+          val parameters = sparkError.getClass.getMethod("getMessageParameters")
+            .invoke(sparkError).asInstanceOf[java.util.Map[String, String]]
+          assert(condition === "FAILED_READ_FILE.FILE_NOT_EXIST")
+          assert(parameters.get("path") === missingFilePath)
+        } else {
+          val fileError = error.asInstanceOf[FileNotFoundException]
+          assert(fileError.getMessage.contains("recreating the Dataset/DataFrame involved"))
+          assert(fileError.getMessage.contains("REFRESH TABLE") === includeRefreshHint)
+        }
         assert(error.getCause.isInstanceOf[FileNotFoundException])
         assert(context.taskMetrics().inputMetrics.bytesRead == 7L)
         context.markTaskComplete()

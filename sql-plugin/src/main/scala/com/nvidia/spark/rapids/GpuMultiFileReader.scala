@@ -16,7 +16,7 @@
 
 package com.nvidia.spark.rapids
 
-import java.io.{File, IOException}
+import java.io.{File, FileNotFoundException, IOException}
 import java.net.{URI, URISyntaxException}
 import java.util.concurrent.{CompletionService, ConcurrentLinkedQueue, ExecutorCompletionService, Future, ThreadPoolExecutor, TimeUnit}
 import java.util.concurrent.atomic.{AtomicBoolean, AtomicInteger}
@@ -581,6 +581,11 @@ abstract class MultiFileCloudPartitionReaderBase(
     // An AsyncRunner wrapper used to update related metrics
     val newTaskRunner = (file: PartitionedFile) => {
       val runner = getBatchRunner(tc, file, conf, filters)
+      runner.addFailureTransformer {
+        case error: FileNotFoundException =>
+          GpuFileNotFoundException(file.filePath.toString, error)
+        case error => error
+      }
       val metrics = GpuTaskMetrics.get
       val taskId = tc.taskAttemptId()
       runner.addPreHook(() => {
@@ -1472,8 +1477,13 @@ abstract class MultiFileCoalescingPartitionReaderBase(
             // use a single buffer and slice it up for different files if we need
             val outLocal = hmb.slice(offset, fileBlockSize)
             // Third, copy the blocks for each file in parallel using background threads
-            tasks.add(threadPool.submit(
-              getBatchRunner(tc, file, outLocal, blocks, offset, batchContext)))
+            val runner = getBatchRunner(tc, file, outLocal, blocks, offset, batchContext)
+            runner.addFailureTransformer {
+              case error: FileNotFoundException =>
+                GpuFileNotFoundException(file.toString, error)
+              case error => error
+            }
+            tasks.add(threadPool.submit(runner))
             offset += fileBlockSize
           }
 

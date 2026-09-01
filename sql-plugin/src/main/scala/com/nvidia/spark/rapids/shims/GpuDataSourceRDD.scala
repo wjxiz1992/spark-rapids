@@ -19,13 +19,15 @@ package com.nvidia.spark.rapids.shims
 import java.io.FileNotFoundException
 import java.util.concurrent.ExecutionException
 
-import com.nvidia.spark.rapids.{FileSystemBytesReadTracker, MetricsBatchIterator, PartitionIterator}
+import com.nvidia.spark.rapids.{FileSystemBytesReadTracker, GpuFileNotFoundException,
+  MetricsBatchIterator, PartitionIterator}
 import com.nvidia.spark.rapids.ScalableTaskCompletion.onTaskCompletion
 
 import org.apache.spark.{InterruptibleIterator, Partition, SparkContext, SparkException, TaskContext}
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.connector.read.{InputPartition, PartitionReaderFactory}
+import org.apache.spark.sql.execution.datasources.FilePartition
 import org.apache.spark.sql.vectorized.ColumnarBatch
 
 /**
@@ -63,6 +65,7 @@ class GpuDataSourceRDD(
       private val inputPartitions = castPartition(split).inputPartitions
       private var currentIter: Option[Iterator[Object]] = None
       private var currentIndex: Int = 0
+      private var currentInputPartition: InputPartition = _
 
       override def hasNext: Boolean = try {
         val result = currentIter.exists(_.hasNext) || advanceToNextIter()
@@ -72,11 +75,13 @@ class GpuDataSourceRDD(
         result
       } catch {
         case e: FileNotFoundException =>
-          throw GpuDataSourceRDD.withRecoveryHint(e, includeRefreshHint)
+          throw GpuDataSourceRDD.missingFileError(
+            e, includeRefreshHint, currentInputPartition)
         case e: ExecutionException =>
           e.getCause match {
             case cause: FileNotFoundException =>
-              throw GpuDataSourceRDD.withRecoveryHint(cause, includeRefreshHint)
+              throw GpuDataSourceRDD.missingFileError(
+                cause, includeRefreshHint, currentInputPartition)
             case _ => throw e
           }
       }
@@ -89,11 +94,13 @@ class GpuDataSourceRDD(
           currentIter.get.next()
         } catch {
           case e: FileNotFoundException =>
-            throw GpuDataSourceRDD.withRecoveryHint(e, includeRefreshHint)
+            throw GpuDataSourceRDD.missingFileError(
+              e, includeRefreshHint, currentInputPartition)
           case e: ExecutionException =>
             e.getCause match {
               case cause: FileNotFoundException =>
-                throw GpuDataSourceRDD.withRecoveryHint(cause, includeRefreshHint)
+                throw GpuDataSourceRDD.missingFileError(
+                  cause, includeRefreshHint, currentInputPartition)
               case _ => throw e
             }
         } finally {
@@ -106,6 +113,7 @@ class GpuDataSourceRDD(
           false
         } else {
           val inputPartition = inputPartitions(currentIndex)
+          currentInputPartition = inputPartition
           currentIndex += 1
 
           // TODO: SPARK-25083 remove the type erasure hack in data source scan
@@ -134,31 +142,23 @@ class GpuDataSourceRDD(
 }
 
 object GpuDataSourceRDD {
-  private val RECREATE_HINT = "recreating the Dataset/DataFrame involved"
-  private val REFRESH_HINT = "REFRESH TABLE"
-
-  private def withRecoveryHint(
-      e: FileNotFoundException,
-      includeRefreshHint: Boolean): FileNotFoundException = {
-    val message = Option(e.getMessage).getOrElse(e.toString)
-    if (message.contains(RECREATE_HINT) &&
-        (!includeRefreshHint || message.contains(REFRESH_HINT))) {
-      e
-    } else {
-      val recoveryHint = if (includeRefreshHint) {
-        "It is possible the underlying files have been updated. " +
-          "You can explicitly invalidate the cache in Spark by " +
-          "running 'REFRESH TABLE tableName' command in SQL or " +
-          "by recreating the Dataset/DataFrame involved."
-      } else {
-        "It is possible the underlying files have been updated. " +
-          "You can explicitly invalidate the cache in Spark by " +
-          "recreating the Dataset/DataFrame involved."
-      }
-      val enrichedException = new FileNotFoundException(s"$message\n$recoveryHint")
-      enrichedException.initCause(e)
-      enrichedException
+  private def missingFileError(
+      error: FileNotFoundException,
+      includeRefreshHint: Boolean,
+      inputPartition: InputPartition): Throwable = {
+    val (filePath, originalError) = error match {
+      case GpuFileNotFoundException(path, originalException) =>
+        (Some(path), originalException)
+      case _ =>
+        (singleFilePath(inputPartition), error)
     }
+    MissingFileErrorShim.convert(filePath, originalError, includeRefreshHint)
+  }
+
+  private def singleFilePath(inputPartition: InputPartition): Option[String] = {
+    Option(inputPartition).collect { case filePartition: FilePartition =>
+      SparkShimImpl.getPartitionFiles(filePartition)
+    }.filter(_.length == 1).map(_.head.filePath.toString)
   }
 
   private case class GpuDataSourceRDDPartition(

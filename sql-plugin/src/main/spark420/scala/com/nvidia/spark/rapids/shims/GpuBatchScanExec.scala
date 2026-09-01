@@ -144,7 +144,8 @@ case class GpuBatchScanExec(
     }
   }
 
-  override lazy val readerFactory: PartitionReaderFactory = batch.createReaderFactory()
+  override lazy val readerFactory: PartitionReaderFactory =
+    MissingFileErrorShim.wrapReaderFactory(batch.createReaderFactory())
 
   override lazy val inputRDD: RDD[InternalRow] = {
     scan.metrics = allMetrics
