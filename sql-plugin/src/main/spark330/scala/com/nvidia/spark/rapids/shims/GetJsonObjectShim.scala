@@ -41,22 +41,28 @@
 spark-rapids-shim-json-lines ***/
 package com.nvidia.spark.rapids.shims
 
-import org.apache.spark.sql.catalyst.expressions.{GetJsonObject, Literal}
-import org.apache.spark.sql.types.StringType
-import org.apache.spark.unsafe.types.UTF8String
+import org.apache.spark.{SparkConf, SparkEnv}
 
 object GetJsonObjectShim {
-  private lazy val runtimeQuotedQuestionMarkSupport: Option[Boolean] = {
-    val expected = "QUESTION"
-    val json = Literal.create(UTF8String.fromString(s"""{"?":"$expected"}"""), StringType)
-    val path = Literal.create(UTF8String.fromString("$['?']"), StringType)
-    GetJsonObjectRuntimeSemantics.classifyQuotedQuestionMarkResult(
-      GetJsonObject(json, path).eval(null), expected)
+  private val DATAPROC_ENGINE_KEY = "spark.dataproc.engine"
+  private val LEGACY_NAMED_PART_REGEXP = "[^\\'\\?]+"
+  private val FIXED_NAMED_PART_REGEXP = "[^\\']+"
+
+  private[rapids] def partRegexpInNamed(conf: SparkConf): String = {
+    if (conf.contains(DATAPROC_ENGINE_KEY)) {
+      FIXED_NAMED_PART_REGEXP
+    } else {
+      LEGACY_NAMED_PART_REGEXP
+    }
   }
 
   /**
-   * Detect whether this Spark runtime includes SPARK-46761 semantics. Some vendors backported the
-   * fix without changing the upstream Spark version, so a version check is not sufficient.
+   * Spark 3.x uses the legacy quoted-name parser, except on Dataproc classic and Serverless
+   * runtimes. Dataproc sets `spark.dataproc.engine` and has backported SPARK-46761.
    */
-  def quotedQuestionMarkSupport: Option[Boolean] = runtimeQuotedQuestionMarkSupport
+  def partRegexpInNamed: String = {
+    Option(SparkEnv.get)
+      .map(env => partRegexpInNamed(env.conf))
+      .getOrElse(LEGACY_NAMED_PART_REGEXP)
+  }
 }

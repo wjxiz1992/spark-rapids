@@ -30,9 +30,15 @@ spark-rapids-shim-json-lines ***/
 
 package com.nvidia.spark.rapids.shims
 
+import org.apache.spark.SparkConf
+
 object GetJsonObjectShim {
+  private val FIXED_NAMED_PART_REGEXP = "[^\\']+"
+
+  private[rapids] def partRegexpInNamed(conf: SparkConf): String = FIXED_NAMED_PART_REGEXP
+
   /**
    * Spark 4 includes SPARK-46761, which accepts question marks in quoted path names.
    */
-  def quotedQuestionMarkSupport: Option[Boolean] = Some(true)
+  def partRegexpInNamed: String = FIXED_NAMED_PART_REGEXP
 }

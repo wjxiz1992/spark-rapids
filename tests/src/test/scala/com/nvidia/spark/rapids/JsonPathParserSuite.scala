@@ -17,9 +17,10 @@
 package com.nvidia.spark.rapids
 
 import com.nvidia.spark.rapids.PathInstruction.{Key, Named}
-import com.nvidia.spark.rapids.shims.{GetJsonObjectRuntimeSemantics, GetJsonObjectShim}
+import com.nvidia.spark.rapids.shims.GetJsonObjectShim
 import org.scalatest.funsuite.AnyFunSuite
 
+import org.apache.spark.SparkConf
 import org.apache.spark.sql.catalyst.expressions.{GetJsonObject, Literal}
 import org.apache.spark.sql.types.StringType
 import org.apache.spark.unsafe.types.UTF8String
@@ -27,64 +28,54 @@ import org.apache.spark.unsafe.types.UTF8String
 class JsonPathParserSuite extends AnyFunSuite {
   private val questionMarkPath = List(Key, Named("?"))
 
-  test("quoted question marks follow the selected parser dialect") {
+  test("Dataproc configuration selects quoted question mark support") {
+    val dataprocConf = new SparkConf(false).set("spark.dataproc.engine", "default")
+    val dataprocRegexp = GetJsonObjectShim.partRegexpInNamed(dataprocConf)
     val fixedCases = Seq(
       "$['?']" -> List(Key, Named("?")),
       "$['a?b']" -> List(Key, Named("a?b")),
       "$.outer['?']" -> List(Key, Named("outer"), Key, Named("?")))
 
     fixedCases.foreach { case (path, expected) =>
-      assert(JsonPathParser.parse(path, allowQuestionMarkInQuotedName = true) === Some(expected))
-      assert(JsonPathParser.parse(path, allowQuestionMarkInQuotedName = false).isEmpty)
+      assert(JsonPathParser.parseWithNamedPartRegexp(path, dataprocRegexp) === Some(expected))
     }
   }
 
-  test("unquoted and malformed paths are independent of the selected parser dialect") {
-    Seq(true, false).foreach { allowQuestionMark =>
-      assert(JsonPathParser.parse("$.?", allowQuestionMark) === Some(questionMarkPath))
-      assert(JsonPathParser.parse("$['ordinary']", allowQuestionMark) ===
+  test("unquoted and malformed paths are independent of the configured platform") {
+    val vanillaRegexp = GetJsonObjectShim.partRegexpInNamed(new SparkConf(false))
+    val dataprocRegexp = GetJsonObjectShim.partRegexpInNamed(
+      new SparkConf(false).set("spark.dataproc.engine", "default"))
+
+    Seq(vanillaRegexp, dataprocRegexp).distinct.foreach { partRegexpInNamed =>
+      assert(JsonPathParser.parseWithNamedPartRegexp("$.?", partRegexpInNamed) ===
+        Some(questionMarkPath))
+      assert(JsonPathParser.parseWithNamedPartRegexp("$['ordinary']", partRegexpInNamed) ===
         Some(List(Key, Named("ordinary"))))
-      assert(JsonPathParser.parse("$['']", allowQuestionMark).isEmpty)
-      assert(JsonPathParser.parse("$['unterminated]", allowQuestionMark).isEmpty)
+      assert(JsonPathParser.parseWithNamedPartRegexp("$['']", partRegexpInNamed).isEmpty)
+      assert(JsonPathParser.parseWithNamedPartRegexp(
+        "$['unterminated]", partRegexpInNamed).isEmpty)
     }
   }
 
-  test("quoted question mark probe result is classified fail closed") {
-    val expected = "QUESTION"
-    assert(GetJsonObjectRuntimeSemantics.classifyQuotedQuestionMarkResult(
-      UTF8String.fromString(expected), expected) === Some(true))
-    assert(GetJsonObjectRuntimeSemantics.classifyQuotedQuestionMarkResult(
-      null, expected) === Some(false))
-    assert(GetJsonObjectRuntimeSemantics.classifyQuotedQuestionMarkResult(
-      UTF8String.fromString("unexpected"), expected).isEmpty)
-    assert(GetJsonObjectRuntimeSemantics.classifyQuotedQuestionMarkResult(
-      throw new RuntimeException("probe failed"), expected).isEmpty)
+  test("literal path parsing handles null") {
+    assert(GpuGetJsonObjectMeta.parseLiteralPath(null).isEmpty)
   }
 
-  test("unknown runtime semantics require CPU fallback") {
-    assert(GpuGetJsonObjectMeta.unsupportedReason(None) ===
-      Some(GpuGetJsonObjectMeta.UNKNOWN_QUESTION_MARK_SUPPORT_REASON))
-    assert(GpuGetJsonObjectMeta.unsupportedReason(Some(true)).isEmpty)
-    assert(GpuGetJsonObjectMeta.unsupportedReason(Some(false)).isEmpty)
-  }
-
-  test("literal path parsing handles null without changing the selected dialect") {
-    assert(GpuGetJsonObjectMeta.parseLiteralPath(
-      null, allowQuestionMarkInQuotedName = true).isEmpty)
-    assert(GpuGetJsonObjectMeta.parseLiteralPath(
-      null, allowQuestionMarkInQuotedName = false).isEmpty)
-  }
-
-  test("shim capability matches the active Spark CPU expression") {
+  test("vanilla shim parser matches the active Spark CPU expression") {
     val expectedValue = "QUESTION"
     val json = Literal.create(
       UTF8String.fromString(s"""{"?":"$expectedValue"}"""), StringType)
     val path = Literal.create(UTF8String.fromString("$['?']"), StringType)
-    val cpuResult = GetJsonObject(json, path).eval(null)
-    val expected = GetJsonObjectRuntimeSemantics.classifyQuotedQuestionMarkResult(
-      cpuResult, expectedValue)
+    val cpuResult = Option(GetJsonObject(json, path).eval(null)).map(_.toString)
+    val expectedInstructions = cpuResult match {
+      case Some(`expectedValue`) => Some(questionMarkPath)
+      case None => None
+      case other => fail(s"Unexpected CPU get_json_object result: $other")
+    }
+    val vanillaRegexp = GetJsonObjectShim.partRegexpInNamed(new SparkConf(false))
 
-    assert(expected.isDefined)
-    assert(GetJsonObjectShim.quotedQuestionMarkSupport === expected)
+    assert(JsonPathParser.parseWithNamedPartRegexp("$['?']", vanillaRegexp) ===
+      expectedInstructions)
+    assert(JsonPathParser.parse("$['?']") === expectedInstructions)
   }
 }
