@@ -21,20 +21,19 @@ import scala.util.Try
 import org.apache.spark.unsafe.types.UTF8String
 
 private[rapids] object GetJsonObjectRuntimeSemantics {
-  private val ExpectedQuestionMarkValue = "QUESTION"
-
   /**
    * Classify the result of evaluating the quoted-question-mark probe with the active CPU
    * Catalyst implementation.
    *
    * @param result lazily evaluated probe result; evaluation failures are treated as unknown
+   * @param expected expected string value when quoted question marks are supported
    * @return `Some(true)` for the SPARK-46761 result, `Some(false)` for the legacy null result,
    *         or `None` for an unexpected value or evaluation failure
    */
-  def classifyQuotedQuestionMarkResult(result: => Any): Option[Boolean] = {
+  def classifyQuotedQuestionMarkResult(result: => Any, expected: String): Option[Boolean] = {
     Try(result).toOption match {
       case Some(null) => Some(false)
-      case Some(value: UTF8String) if value.toString == ExpectedQuestionMarkValue => Some(true)
+      case Some(value: UTF8String) if value.toString == expected => Some(true)
       case _ => None
     }
   }

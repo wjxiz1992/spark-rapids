@@ -50,13 +50,15 @@ class JsonPathParserSuite extends AnyFunSuite {
   }
 
   test("quoted question mark probe result is classified fail closed") {
+    val expected = "QUESTION"
     assert(GetJsonObjectRuntimeSemantics.classifyQuotedQuestionMarkResult(
-      UTF8String.fromString("QUESTION")) === Some(true))
-    assert(GetJsonObjectRuntimeSemantics.classifyQuotedQuestionMarkResult(null) === Some(false))
+      UTF8String.fromString(expected), expected) === Some(true))
     assert(GetJsonObjectRuntimeSemantics.classifyQuotedQuestionMarkResult(
-      UTF8String.fromString("unexpected")).isEmpty)
+      null, expected) === Some(false))
     assert(GetJsonObjectRuntimeSemantics.classifyQuotedQuestionMarkResult(
-      throw new RuntimeException("probe failed")).isEmpty)
+      UTF8String.fromString("unexpected"), expected).isEmpty)
+    assert(GetJsonObjectRuntimeSemantics.classifyQuotedQuestionMarkResult(
+      throw new RuntimeException("probe failed"), expected).isEmpty)
   }
 
   test("unknown runtime semantics require CPU fallback") {
@@ -74,10 +76,13 @@ class JsonPathParserSuite extends AnyFunSuite {
   }
 
   test("shim capability matches the active Spark CPU expression") {
-    val json = Literal.create(UTF8String.fromString("""{"?":"QUESTION"}"""), StringType)
+    val expectedValue = "QUESTION"
+    val json = Literal.create(
+      UTF8String.fromString(s"""{"?":"$expectedValue"}"""), StringType)
     val path = Literal.create(UTF8String.fromString("$['?']"), StringType)
     val cpuResult = GetJsonObject(json, path).eval(null)
-    val expected = GetJsonObjectRuntimeSemantics.classifyQuotedQuestionMarkResult(cpuResult)
+    val expected = GetJsonObjectRuntimeSemantics.classifyQuotedQuestionMarkResult(
+      cpuResult, expectedValue)
 
     assert(expected.isDefined)
     assert(GetJsonObjectShim.quotedQuestionMarkSupport === expected)

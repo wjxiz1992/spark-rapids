@@ -47,11 +47,11 @@ import org.apache.spark.unsafe.types.UTF8String
 
 object GetJsonObjectShim {
   private lazy val runtimeQuotedQuestionMarkSupport: Option[Boolean] = {
-    val json = Literal.create(UTF8String.fromString("""{"?":"QUESTION"}"""), StringType)
+    val expected = "QUESTION"
+    val json = Literal.create(UTF8String.fromString(s"""{"?":"$expected"}"""), StringType)
     val path = Literal.create(UTF8String.fromString("$['?']"), StringType)
-    GetJsonObjectRuntimeSemantics.classifyQuotedQuestionMarkResult {
-      GetJsonObject(json, path).eval(null)
-    }
+    GetJsonObjectRuntimeSemantics.classifyQuotedQuestionMarkResult(
+      GetJsonObject(json, path).eval(null), expected)
   }
 
   /**
