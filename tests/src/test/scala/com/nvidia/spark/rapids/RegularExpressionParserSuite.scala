@@ -54,7 +54,7 @@ class RegularExpressionParserSuite extends AnyFunSuite {
       RegexRepetition(RegexChar('a'), QuantifierFixedLength(1)))))
   }
 
-  test("issue-14738: bounded reluctant quantifiers have semantic modes") {
+  test("bounded reluctant quantifiers have semantic modes") {
     val cases = Seq(
       "a{2}?" -> QuantifierFixedLength(2, RegexQuantifier.Reluctant),
       "a{2,}?" -> QuantifierVariableLength(2, None, RegexQuantifier.Reluctant),

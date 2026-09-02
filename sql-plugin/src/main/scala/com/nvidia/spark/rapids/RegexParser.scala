@@ -136,8 +136,9 @@ class RegexParser(pattern: String) {
     val base = parseBase()
     base.position = Some(baseStart)
     if (!eof() && !until()) {
-      // Keep the repetition position on the base quantifier token. The quantifier itself points
-      // at a reluctant/possessive modifier when present, so diagnostics can choose either site.
+      // Keep the repetition position on the quantifier opening token, and the quantifier position
+      // on the reluctant/possessive modifier when present. The repeated expression points to
+      // its own start, so all three positions are preserved for diagnostics.
       val quantifierStart = pos
       tryParseQuantifier()
         .map { quantifier =>
