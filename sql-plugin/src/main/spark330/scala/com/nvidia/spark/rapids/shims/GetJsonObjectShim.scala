@@ -41,18 +41,125 @@
 spark-rapids-shim-json-lines ***/
 package com.nvidia.spark.rapids.shims
 
+import scala.util.parsing.combinator.RegexParsers
+
+import com.nvidia.spark.rapids.PathInstruction
+
 import org.apache.spark.{SparkConf, SparkEnv}
 
 object GetJsonObjectShim {
   private val DATAPROC_ENGINE_KEY = "spark.dataproc.engine"
-  private val LEGACY_NAMED_PART_REGEXP = "[^\\'\\?]+"
-  private val FIXED_NAMED_PART_REGEXP = "[^\\']+"
 
-  private[rapids] def partRegexpInNamed(conf: SparkConf): String = {
-    if (conf.contains(DATAPROC_ENGINE_KEY)) {
-      FIXED_NAMED_PART_REGEXP
+  // Copied from Apache Spark 3.5.3 JsonPathParser in jsonExpressions.scala.
+  private object LegacyJsonPathParser extends RegexParsers {
+    import com.nvidia.spark.rapids.PathInstruction._
+
+    def root: Parser[Char] = '$'
+
+    def long: Parser[Long] = "\\d+".r ^? {
+      case x => x.toLong
+    }
+
+    // parse `[*]` and `[123]` subscripts
+    def subscript: Parser[List[PathInstruction]] =
+      for {
+        operand <- '[' ~> ('*' ^^^ Wildcard | long ^^ Index) <~ ']'
+      } yield {
+        Subscript :: operand :: Nil
+      }
+
+    // parse `.name` or `['name']` child expressions
+    def named: Parser[List[PathInstruction]] =
+      for {
+        name <- '.' ~> "[^\\.\\[]+".r | "['" ~> "[^\\'\\?]+".r <~ "']"
+      } yield {
+        Key :: Named(name) :: Nil
+      }
+
+    // child wildcards: `..`, `.*` or `['*']`
+    def wildcard: Parser[List[PathInstruction]] =
+      (".*" | "['*']") ^^^ List(Wildcard)
+
+    def node: Parser[List[PathInstruction]] =
+      wildcard |
+        named |
+        subscript
+
+    val expression: Parser[List[PathInstruction]] = {
+      phrase(root ~> rep(node) ^^ (x => x.flatten))
+    }
+
+    def parse(str: String): Option[List[PathInstruction]] = {
+      this.parseAll(expression, str) match {
+        case Success(result, _) =>
+          Some(result)
+
+        case _ =>
+          None
+      }
+    }
+  }
+
+  // Copied from Apache Spark 4.0.0 JsonPathParser after SPARK-46761.
+  private object FixedJsonPathParser extends RegexParsers {
+    import com.nvidia.spark.rapids.PathInstruction._
+
+    def root: Parser[Char] = '$'
+
+    def long: Parser[Long] = "\\d+".r ^? {
+      case x => x.toLong
+    }
+
+    // parse `[*]` and `[123]` subscripts
+    def subscript: Parser[List[PathInstruction]] =
+      for {
+        operand <- '[' ~> ('*' ^^^ Wildcard | long ^^ Index) <~ ']'
+      } yield {
+        Subscript :: operand :: Nil
+      }
+
+    // parse `.name` or `['name']` child expressions
+    def named: Parser[List[PathInstruction]] =
+      for {
+        name <- '.' ~> "[^\\.\\[]+".r | "['" ~> "[^\\']+".r <~ "']"
+      } yield {
+        Key :: Named(name) :: Nil
+      }
+
+    // child wildcards: `..`, `.*` or `['*']`
+    def wildcard: Parser[List[PathInstruction]] =
+      (".*" | "['*']") ^^^ List(Wildcard)
+
+    def node: Parser[List[PathInstruction]] =
+      wildcard |
+        named |
+        subscript
+
+    val expression: Parser[List[PathInstruction]] = {
+      phrase(root ~> rep(node) ^^ (x => x.flatten))
+    }
+
+    def parse(str: String): Option[List[PathInstruction]] = {
+      this.parseAll(expression, str) match {
+        case Success(result, _) =>
+          Some(result)
+
+        case _ =>
+          None
+      }
+    }
+  }
+
+  private def useFixedParser(conf: SparkConf): Boolean = conf.contains(DATAPROC_ENGINE_KEY)
+
+  private lazy val activeParserUsesFixedSemantics =
+    Option(SparkEnv.get).exists(env => useFixedParser(env.conf))
+
+  private[rapids] def parse(str: String, conf: SparkConf): Option[List[PathInstruction]] = {
+    if (useFixedParser(conf)) {
+      FixedJsonPathParser.parse(str)
     } else {
-      LEGACY_NAMED_PART_REGEXP
+      LegacyJsonPathParser.parse(str)
     }
   }
 
@@ -60,9 +167,11 @@ object GetJsonObjectShim {
    * Spark 3.x uses the legacy quoted-name parser, except on Dataproc classic and Serverless
    * runtimes. Dataproc sets `spark.dataproc.engine` and has backported SPARK-46761.
    */
-  def partRegexpInNamed: String = {
-    Option(SparkEnv.get)
-      .map(env => partRegexpInNamed(env.conf))
-      .getOrElse(LEGACY_NAMED_PART_REGEXP)
+  def parse(str: String): Option[List[PathInstruction]] = {
+    if (activeParserUsesFixedSemantics) {
+      FixedJsonPathParser.parse(str)
+    } else {
+      LegacyJsonPathParser.parse(str)
+    }
   }
 }

@@ -30,30 +30,27 @@ class JsonPathParserSuite extends AnyFunSuite {
 
   test("Dataproc configuration selects quoted question mark support") {
     val dataprocConf = new SparkConf(false).set("spark.dataproc.engine", "default")
-    val dataprocRegexp = GetJsonObjectShim.partRegexpInNamed(dataprocConf)
     val fixedCases = Seq(
       "$['?']" -> List(Key, Named("?")),
       "$['a?b']" -> List(Key, Named("a?b")),
       "$.outer['?']" -> List(Key, Named("outer"), Key, Named("?")))
 
     fixedCases.foreach { case (path, expected) =>
-      assert(JsonPathParser.parseWithNamedPartRegexp(path, dataprocRegexp) === Some(expected))
+      assert(GetJsonObjectShim.parse(path, dataprocConf) === Some(expected))
     }
   }
 
   test("unquoted and malformed paths are independent of the configured platform") {
-    val vanillaRegexp = GetJsonObjectShim.partRegexpInNamed(new SparkConf(false))
-    val dataprocRegexp = GetJsonObjectShim.partRegexpInNamed(
-      new SparkConf(false).set("spark.dataproc.engine", "default"))
+    val vanillaConf = new SparkConf(false)
+    val dataprocConf = new SparkConf(false).set("spark.dataproc.engine", "default")
 
-    Seq(vanillaRegexp, dataprocRegexp).distinct.foreach { partRegexpInNamed =>
-      assert(JsonPathParser.parseWithNamedPartRegexp("$.?", partRegexpInNamed) ===
+    Seq(vanillaConf, dataprocConf).foreach { conf =>
+      assert(GetJsonObjectShim.parse("$.?", conf) ===
         Some(questionMarkPath))
-      assert(JsonPathParser.parseWithNamedPartRegexp("$['ordinary']", partRegexpInNamed) ===
+      assert(GetJsonObjectShim.parse("$['ordinary']", conf) ===
         Some(List(Key, Named("ordinary"))))
-      assert(JsonPathParser.parseWithNamedPartRegexp("$['']", partRegexpInNamed).isEmpty)
-      assert(JsonPathParser.parseWithNamedPartRegexp(
-        "$['unterminated]", partRegexpInNamed).isEmpty)
+      assert(GetJsonObjectShim.parse("$['']", conf).isEmpty)
+      assert(GetJsonObjectShim.parse("$['unterminated]", conf).isEmpty)
     }
   }
 
@@ -72,9 +69,9 @@ class JsonPathParserSuite extends AnyFunSuite {
       case None => None
       case other => fail(s"Unexpected CPU get_json_object result: $other")
     }
-    val vanillaRegexp = GetJsonObjectShim.partRegexpInNamed(new SparkConf(false))
+    val vanillaConf = new SparkConf(false)
 
-    assert(JsonPathParser.parseWithNamedPartRegexp("$['?']", vanillaRegexp) ===
+    assert(GetJsonObjectShim.parse("$['?']", vanillaConf) ===
       expectedInstructions)
     assert(JsonPathParser.parse("$['?']") === expectedInstructions)
   }
