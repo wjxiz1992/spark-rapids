@@ -62,10 +62,10 @@ _skip_files = {
     "alltypes_tiny_pages_plain.parquet": "https://github.com/NVIDIA/cudf-spark/issues/15872",
 }
 
-# Spark's CPU vectorized reader gained DELTA_LENGTH_BYTE_ARRAY support in Spark 3.4.
+# Spark's CPU vectorized reader gained standalone DELTA_LENGTH_BYTE_ARRAY support in Spark 3.4.
 if is_before_spark_340():
     _xfail_files["delta_length_byte_array.parquet"] = (
-        "https://issues.apache.org/jira/browse/SPARK-37974")
+        "https://issues.apache.org/jira/browse/SPARK-40128")
 
 # Spark 3.5.0 adds support for lz4_raw compression codec, but we do not support that on GPU yet
 if is_spark_350_or_later():
