@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import gc
+import logging
 import weakref
 
 from spark_init_internal import (
@@ -25,10 +26,14 @@ class _Container:
     pass
 
 
-def test_py4j_chained_temporary_container_call():
+def test_py4j_chained_scala_map_get():
     spark = get_spark_i_know_what_i_am_doing()
+    scala_map = spark.conf._jconf.getAll()
+    keys = scala_map.keys().iterator()
 
-    assert spark._jvm.java.util.Collections.emptyList().size() == 0
+    assert keys.hasNext()
+    key = keys.next()
+    assert scala_map.get(key).get() == scala_map.apply(key)
 
 
 def test_py4j_weak_container_is_replaced_with_strong_reference():
@@ -68,3 +73,16 @@ def test_py4j_upstream_strong_container_is_unchanged():
 
     assert not _apply_py4j_strong_ref_workaround_if_needed(StrongJavaMember)
     assert StrongJavaMember.__init__ is original_init
+
+
+def test_py4j_probe_failure_skips_workaround(caplog):
+    class FailingJavaMember:
+        def __init__(self, name, container, target_id, gateway_client):
+            raise RuntimeError('probe failed')
+
+    original_init = FailingJavaMember.__init__
+    with caplog.at_level(logging.ERROR):
+        assert not _apply_py4j_strong_ref_workaround_if_needed(FailingJavaMember)
+
+    assert FailingJavaMember.__init__ is original_init
+    assert 'continuing without the temporary integration-test workaround' in caplog.text
