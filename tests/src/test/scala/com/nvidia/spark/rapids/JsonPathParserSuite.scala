@@ -28,15 +28,23 @@ import org.apache.spark.unsafe.types.UTF8String
 class JsonPathParserSuite extends AnyFunSuite {
   private val questionMarkPath = List(Key, Named("?"))
 
-  test("Dataproc configuration selects quoted question mark support") {
+  // Classic 2.1 and Serverless 1.2 use the legacy parser through Spark 3.3.2/3.5.1.
+  // Classic 2.2/2.3 and Serverless 2.2/2.3 use patched Spark 3.5.3; Spark 4 is fixed.
+  private val dataprocUsesFixedParser = {
+    val sparkVersion = org.apache.spark.SPARK_VERSION
+    sparkVersion.startsWith("3.5.3") || sparkVersion.split('.').head.toInt >= 4
+  }
+
+  test("supported Dataproc shims select measured quoted question mark semantics") {
     val dataprocConf = new SparkConf(false).set("spark.dataproc.engine", "default")
-    val fixedCases = Seq(
+    val questionMarkCases = Seq(
       "$['?']" -> List(Key, Named("?")),
       "$['a?b']" -> List(Key, Named("a?b")),
       "$.outer['?']" -> List(Key, Named("outer"), Key, Named("?")))
 
-    fixedCases.foreach { case (path, expected) =>
-      assert(GetJsonObjectShim.parse(path, dataprocConf) === Some(expected))
+    questionMarkCases.foreach { case (path, expected) =>
+      val expectedResult = if (dataprocUsesFixedParser) Some(expected) else None
+      assert(GetJsonObjectShim.parse(path, dataprocConf) === expectedResult)
     }
   }
 

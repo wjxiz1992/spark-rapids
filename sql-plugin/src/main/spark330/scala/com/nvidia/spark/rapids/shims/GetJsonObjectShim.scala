@@ -31,7 +31,6 @@
 {"spark": "350db143"}
 {"spark": "351"}
 {"spark": "352"}
-{"spark": "353"}
 {"spark": "354"}
 {"spark": "355"}
 {"spark": "356"}
@@ -45,13 +44,11 @@ import scala.util.parsing.combinator.RegexParsers
 
 import com.nvidia.spark.rapids.PathInstruction
 
-import org.apache.spark.{SparkConf, SparkEnv}
+import org.apache.spark.SparkConf
 
 object GetJsonObjectShim {
-  private val DATAPROC_ENGINE_KEY = "spark.dataproc.engine"
-
   // Copied from Apache Spark 3.5.3 JsonPathParser in jsonExpressions.scala.
-  private object LegacyJsonPathParser extends RegexParsers {
+  private object JsonPathParser extends RegexParsers {
     import com.nvidia.spark.rapids.PathInstruction._
 
     def root: Parser[Char] = '$'
@@ -100,78 +97,13 @@ object GetJsonObjectShim {
     }
   }
 
-  // Copied from Apache Spark 4.0.0 JsonPathParser after SPARK-46761.
-  private object FixedJsonPathParser extends RegexParsers {
-    import com.nvidia.spark.rapids.PathInstruction._
-
-    def root: Parser[Char] = '$'
-
-    def long: Parser[Long] = "\\d+".r ^? {
-      case x => x.toLong
-    }
-
-    // parse `[*]` and `[123]` subscripts
-    def subscript: Parser[List[PathInstruction]] =
-      for {
-        operand <- '[' ~> ('*' ^^^ Wildcard | long ^^ Index) <~ ']'
-      } yield {
-        Subscript :: operand :: Nil
-      }
-
-    // parse `.name` or `['name']` child expressions
-    def named: Parser[List[PathInstruction]] =
-      for {
-        name <- '.' ~> "[^\\.\\[]+".r | "['" ~> "[^\\']+".r <~ "']"
-      } yield {
-        Key :: Named(name) :: Nil
-      }
-
-    // child wildcards: `..`, `.*` or `['*']`
-    def wildcard: Parser[List[PathInstruction]] =
-      (".*" | "['*']") ^^^ List(Wildcard)
-
-    def node: Parser[List[PathInstruction]] =
-      wildcard |
-        named |
-        subscript
-
-    val expression: Parser[List[PathInstruction]] = {
-      phrase(root ~> rep(node) ^^ (x => x.flatten))
-    }
-
-    def parse(str: String): Option[List[PathInstruction]] = {
-      this.parseAll(expression, str) match {
-        case Success(result, _) =>
-          Some(result)
-
-        case _ =>
-          None
-      }
-    }
-  }
-
-  private def useFixedParser(conf: SparkConf): Boolean = conf.contains(DATAPROC_ENGINE_KEY)
-
-  private lazy val activeParserUsesFixedSemantics =
-    Option(SparkEnv.get).exists(env => useFixedParser(env.conf))
-
-  private[rapids] def parse(str: String, conf: SparkConf): Option[List[PathInstruction]] = {
-    if (useFixedParser(conf)) {
-      FixedJsonPathParser.parse(str)
-    } else {
-      LegacyJsonPathParser.parse(str)
-    }
-  }
+  private[rapids] def parse(
+      str: String,
+      _conf: SparkConf): Option[List[PathInstruction]] = JsonPathParser.parse(str)
 
   /**
-   * Spark 3.x uses the legacy quoted-name parser, except on Dataproc classic and Serverless
-   * runtimes. Dataproc sets `spark.dataproc.engine` and has backported SPARK-46761.
+   * Spark 3.x uses the legacy quoted-name parser. The Dataproc runtimes that backport
+   * SPARK-46761 use the Spark 3.5.3-specific shim instead.
    */
-  def parse(str: String): Option[List[PathInstruction]] = {
-    if (activeParserUsesFixedSemantics) {
-      FixedJsonPathParser.parse(str)
-    } else {
-      LegacyJsonPathParser.parse(str)
-    }
-  }
+  def parse(str: String): Option[List[PathInstruction]] = JsonPathParser.parse(str)
 }
