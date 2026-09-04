@@ -19,8 +19,8 @@ package com.nvidia.spark.rapids.shims
 import java.io.FileNotFoundException
 import java.util.concurrent.{ConcurrentHashMap, ExecutionException}
 
-import com.nvidia.spark.rapids.Arm.closeOnExcept
 import com.nvidia.spark.rapids.{FileSystemBytesReadTracker, GpuFileNotFoundException}
+import com.nvidia.spark.rapids.Arm.closeOnExcept
 import com.nvidia.spark.rapids.ScalableTaskCompletion.onTaskCompletion
 
 import org.apache.spark.{InterruptibleIterator, Partition, SparkContext, SparkException, TaskContext}
