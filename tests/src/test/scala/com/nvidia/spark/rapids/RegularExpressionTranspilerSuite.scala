@@ -1715,14 +1715,14 @@ class FuzzRegExp(suggestedChars: String, skipKnownIssues: Boolean = true,
 
   private def repetition(depth: Int) = {
     import RegexQuantifier._
-    val modes = Seq[Mode](Greedy, Reluctant, Possessive)
+    val modes = Seq(Greedy, Reluctant, Possessive)
     val mode = modes(rr.nextInt(modes.length))
     RegexRepetition(generate(depth + 1), RegexQuantifier(quantifierBase, mode))
   }
 
   private def quantifierBase: RegexQuantifier.Base = {
     import RegexQuantifier._
-    val generators = Seq[() => Base](
+    val generators = Seq(
       () => OneOrMore,
       () => ZeroOrMore,
       () => ZeroOrOne,

@@ -194,13 +194,13 @@ class RegexParser(pattern: String) {
       case Some('{') =>
         tryParseBraceQuantifier()
       case Some('*') =>
-        consume()
+        consumeExpected('*')
         Some(ZeroOrMore)
       case Some('+') =>
-        consume()
+        consumeExpected('+')
         Some(OneOrMore)
       case Some('?') =>
-        consume()
+        consumeExpected('?')
         Some(ZeroOrOne)
       case _ => None
     }
@@ -209,17 +209,15 @@ class RegexParser(pattern: String) {
       case Some(base) =>
         val mode = peek() match {
           case Some('?') =>
-            consume()
+            consumeExpected('?')
             Reluctant
           case Some('+') =>
-            consume()
+            consumeExpected('+')
             Possessive
           case _ => Greedy
         }
-        val quantifier = RegexQuantifier(base, mode)
         // Point diagnostics at the modifier when present, otherwise at the base quantifier.
-        quantifier.position = Some(if (mode == Greedy) start else pos - 1)
-        Some(quantifier)
+        Some(new RegexQuantifier(base, mode, if (mode == Greedy) start else pos - 1))
       case None =>
         pos = start
         None
@@ -1590,9 +1588,10 @@ class CudfRegexTranspiler(mode: RegexMode) {
             s"cuDF does not support repetition counts greater than $maxRepetitionCount",
             repetition.position)
 
-        case (_, q @ RegexQuantifier(_, Possessive)) =>
+        case (_, RegexQuantifier(_, Possessive)) =>
           throw new RegexUnsupportedException(
-            s"Possessive quantifier ${q.toRegexString} not supported", q.position)
+            s"Possessive quantifier ${quantifier.toRegexString} not supported",
+            quantifier.position)
 
         case (_, q) if mode == RegexSplitMode
             && flags.emptyRepetition && q.minLength == 0 =>
@@ -1604,14 +1603,11 @@ class CudfRegexTranspiler(mode: RegexMode) {
             "regexp_split on GPU does not support empty match repetition consistently with Spark",
             quantifier.position)
 
-        case (_, RegexQuantifier(Variable(0, Some(0)), _)) if mode != RegexFindMode =>
+        case (_, RegexQuantifier(Variable(0, Some(0)) | Fixed(0), _))
+            if mode != RegexFindMode =>
           throw new RegexUnsupportedException(
-            "regex_replace and regex_split on GPU do not support repetition with {0,0}",
-            quantifier.position)
-
-        case (_, RegexQuantifier(Fixed(0), _)) if mode != RegexFindMode =>
-          throw new RegexUnsupportedException(
-            "regex_replace and regex_split on GPU do not support repetition with {0}",
+            s"regex_replace and regex_split on GPU do not support repetition with " +
+              s"${quantifier.toRegexString}",
             quantifier.position)
 
         case (g @ RegexGroup(groupType, _), _) if !RegexGroup.isCudfGroupType(groupType) =>
@@ -1619,87 +1615,37 @@ class CudfRegexTranspiler(mode: RegexMode) {
             "Repetition of lookaround, independent, or named capture groups is not supported",
             g.position)
 
-        case (RegexGroup(groupType, term), RegexQuantifier(simpleBase, _))
-            if (simpleBase == OneOrMore || simpleBase == ZeroOrMore) &&
-                !isSupportedRepetitionBase(term) =>
-          (term, simpleBase) match {
-            // \Z is not supported in groups
-            case (RegexEscaped('A'), OneOrMore) |
-                (RegexSequence(ListBuffer(RegexEscaped('A'))), OneOrMore) =>
-              // (\A)+ can be transpiled to (\A) (dropping the repetition)
-              // we use rewrite(...) here to handle logic regarding modes
-              // (\A is not supported in RegexSplitMode)
-              RegexGroup(groupType, rewrite(term, previous, flags))
-            // NOTE: (\A)* can be transpiled to (\A)?
-            // however, (\A)? is not supported in libcudf yet
-            case _ =>
-              val unsupportedTerm = getUnsupportedRepetitionBase(term)
-              throw new RegexUnsupportedException(
-                s"cuDF does not support repetition of group containing: " +
-                  s"${unsupportedTerm.toRegexString}", term.position)
-          }
-        case (RegexGroup(groupType, term), RegexQuantifier(Variable(_, _), _))
-            if !isSupportedRepetitionBase(term) =>
-          term match {
-            // \Z is not supported in groups
-            case RegexEscaped('A') |
-                RegexSequence(ListBuffer(RegexEscaped('A')))
-                if quantifier.minLength > 0 =>
-              // (\A){1,} can be transpiled to (\A) (dropping the repetition)
-              // we use rewrite(...) here to handle logic regarding modes
-              // (\A is not supported in RegexSplitMode)
-              RegexGroup(groupType, rewrite(term, previous, flags))
-            // NOTE: (\A)* can be transpiled to (\A)?
-            // however, (\A)? is not supported in libcudf yet
-            case _ =>
-              val unsupportedTerm = getUnsupportedRepetitionBase(term)
-              throw new RegexUnsupportedException(
-                s"cuDF does not support repetition of group containing: " +
-                  s"${unsupportedTerm.toRegexString}", term.position)
-          }
-        case (RegexGroup(groupType, term), RegexQuantifier(Fixed(n), _))
-            if !isSupportedRepetitionBase(term) =>
-          term match {
-            // \Z is not supported in groups
-            case RegexEscaped('A') |
-              RegexSequence(ListBuffer(RegexEscaped('A'))) if n > 0 =>
-              // (\A){1,} can be transpiled to (\A) (dropping the repetition)
-              // we use rewrite(...) here to handle logic regarding modes
-              // (\A is not supported in RegexSplitMode)
-              RegexGroup(groupType, rewrite(term, previous, flags))
-            // NOTE: (\A)* can be transpiled to (\A)?
-            // however, (\A)? is not supported in libcudf yet
-            case _ =>
-              val unsupportedTerm = getUnsupportedRepetitionBase(term)
-              throw new RegexUnsupportedException(
-                s"cuDF does not support repetition of group containing: " +
-                  s"${unsupportedTerm.toRegexString}", term.position)
-          }
         case (RegexGroup(_, term), RegexQuantifier(ZeroOrOne, _)) =>
           if (isEntirelyWordBoundary(term) || isEntirelyLineAnchor(term)) {
             throw new RegexUnsupportedException(
                 s"cuDF does not support repetition of: ${term.toRegexString}", term.position)
           }
           RegexRepetition(rewrite(base, None, flags), quantifier)
-        case (RegexEscaped(ch), RegexQuantifier(OneOrMore, _))
-            if "AZ".contains(ch) =>
-          // \A+ can be transpiled to \A (dropping the repetition)
-          // \Z+ can be transpiled to \Z (dropping the repetition)
-          // we use rewrite(...) here to handle logic regarding modes
-          // (\A and \Z are not supported in RegexSplitMode)
+        case (RegexGroup(groupType, term), _) if !isSupportedRepetitionBase(term) =>
+          term match {
+            // \Z is not supported in groups
+            case RegexEscaped('A') | RegexSequence(ListBuffer(RegexEscaped('A')))
+                if quantifier.minLength > 0 =>
+              // (\A)+, (\A){2}, and (\A){1,} can be transpiled to (\A)
+              // (dropping the repetition). We use rewrite(...) here to handle logic
+              // regarding modes (\A is not supported in RegexSplitMode).
+              RegexGroup(groupType, rewrite(term, previous, flags))
+            // NOTE: (\A)* can be transpiled to (\A)?
+            // however, (\A)? is not supported in libcudf yet
+            case _ =>
+              val unsupportedTerm = getUnsupportedRepetitionBase(term)
+              throw new RegexUnsupportedException(
+                s"cuDF does not support repetition of group containing: " +
+                  s"${unsupportedTerm.toRegexString}", term.position)
+          }
+        case (RegexEscaped(ch), _) if quantifier.minLength > 0 && "AZ".contains(ch) =>
+          // \A+, \A{2}, and \A{1,5} can be transpiled to \A (dropping the repetition).
+          // \Z+, \Z{2}, and \Z{1,} can be transpiled to \Z (dropping the repetition).
+          // We use rewrite(...) here to handle logic regarding modes
+          // (\A and \Z are not supported in RegexSplitMode).
           rewrite(base, previous, flags)
         // NOTE: \A* can be transpiled to \A?
         // however, \A? is not supported in libcudf yet
-        case (RegexEscaped(ch), RegexQuantifier(Fixed(n), _))
-            if n > 0 && "AZ".contains(ch) =>
-          // \A{2} can be transpiled to \A (dropping the repetition)
-          // \Z{2} can be transpiled to \Z (dropping the repetition)
-          rewrite(base, previous, flags)
-        case (RegexEscaped(ch), RegexQuantifier(Variable(n, _), _))
-            if n > 0 && "AZ".contains(ch) =>
-          // \A{1,5} can be transpiled to \A (dropping the repetition)
-          // \Z{1,} can be transpiled to \Z (dropping the repetition)
-          rewrite(base, previous, flags)
         case _ if isSupportedRepetitionBase(base) =>
           RegexRepetition(rewrite(base, None, flags), quantifier)
         case _ =>
@@ -2060,8 +2006,8 @@ object RegexQuantifier {
   case object ZeroOrOne extends Base
   case object ZeroOrMore extends Base
   case object OneOrMore extends Base
-  final case class Fixed(length: Int) extends Base
-  final case class Variable(minLength: Int, maxLength: Option[Int]) extends Base
+  sealed case class Fixed(length: Int) extends Base
+  sealed case class Variable(minLength: Int, maxLength: Option[Int]) extends Base
 
   sealed trait Mode
   case object Greedy extends Mode
@@ -2071,8 +2017,13 @@ object RegexQuantifier {
 
 sealed case class RegexQuantifier(
     base: RegexQuantifier.Base,
-    mode: RegexQuantifier.Mode = RegexQuantifier.Greedy) {
+    mode: RegexQuantifier.Mode) {
   import RegexQuantifier._
+
+  def this(base: RegexQuantifier.Base, mode: RegexQuantifier.Mode, position: Int) = {
+    this(base, mode)
+    this.position = Some(position)
+  }
 
   var position: Option[Int] = None
 
@@ -2089,11 +2040,7 @@ sealed case class RegexQuantifier(
       case ZeroOrMore => "*"
       case OneOrMore => "+"
       case Fixed(length) => s"{$length}"
-      case Variable(minLength, maxLength) =>
-        maxLength match {
-          case Some(max) => s"{$minLength,$max}"
-          case None => s"{$minLength,}"
-        }
+      case Variable(minLength, maxLength) => s"{$minLength,${maxLength.mkString}}"
     }
     val suffix = mode match {
       case Greedy => ""
