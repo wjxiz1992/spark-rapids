@@ -1002,14 +1002,33 @@ def test_delta_column_mapping_predicate_pushdown_with_deletion_vector(spark_tmp_
     def filtered_read(spark):
         path = gpu_path if spark.conf.get("spark.rapids.sql.enabled") == "true" else cpu_path
         return spark.read.format("delta").load(path) \
-            .where("id IN (1, 2, 3) AND payload IS NOT NULL") \
+            .where("id IN (1, 2, 3, 4) AND payload IS NOT NULL") \
             .select("id", "payload")
+
+    # id=4 satisfies both predicates in the Parquet file but is removed by the
+    # deletion vector. Pin the CPU oracle so CPU/GPU equality cannot pass if both
+    # readers accidentally return the deleted row.
+    expected = [Row(id=1, payload="one"), Row(id=3, payload="three")]
+    cpu_rows = with_cpu_session(
+        lambda spark: filtered_read(spark).orderBy("id").collect(), conf=conf)
+    assert cpu_rows == expected
+
+    def assert_gpu_pushdown(plan):
+        from conftest import spark_jvm
+
+        callback = spark_jvm().org.apache.spark.sql.rapids.ExecutionPlanCaptureCallback
+        explain_str = str(callback.extractExecutedPlan(plan))
+        compact_plan = explain_str.replace(" ", "")
+        assert "PushedFilters:" in explain_str, explain_str
+        assert "IsNotNull(payload)" in compact_plan, explain_str
+        assert "In(id,[1,2,3,4])" in compact_plan, explain_str
 
     assert_cpu_and_gpu_are_equal_collect_with_capture(
         filtered_read,
         exist_classes="GpuFileSourceScanExec",
         conf=conf,
-        require_non_empty=True)
+        require_non_empty=True,
+        gpu_plan_assertion=assert_gpu_pushdown)
 
 
 @allow_non_gpu(*delta_meta_allow)
