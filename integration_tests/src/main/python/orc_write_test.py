@@ -106,7 +106,7 @@ timestamp_1590_to_1970_param = pytest.param(
 timestamp_1590_to_1970_direct_param = pytest.param(
         timestamp_1590_to_1970_gens,
         marks=validate_execs_in_gpu_plan('GpuWriteFilesExec'),
-        id='1590-to-1970-timestamp')
+        id='1590-to-1970-timestamp-direct')
 
 orc_write_gens_list = [
         *orc_write_non_timestamp_gens_list,
