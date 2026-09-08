@@ -993,11 +993,43 @@ def test_delta_column_mapping_predicate_pushdown_with_deletion_vector(spark_tmp_
         dv_adds = spark.read.json(path + "/_delta_log/*.json") \
             .where("add.deletionVector IS NOT NULL").count()
         assert dv_adds > 0, f"Expected a deletion-vector AddFile in {path}"
+        return physical_names
 
     with_cpu_session(
         lambda spark: assert_column_mapping_and_dv(spark, cpu_path), conf=conf)
-    with_cpu_session(
+    gpu_physical_names = with_cpu_session(
         lambda spark: assert_column_mapping_and_dv(spark, gpu_path), conf=conf)
+
+    def assert_filter_translation(spark):
+        jvm = spark._jvm
+        quoting_utils = jvm.org.apache.spark.sql.catalyst.util.QuotingUtils
+        java_name_map = jvm.java.util.HashMap()
+        for logical_name, physical_name in gpu_physical_names.items():
+            java_name_map.put(
+                quoting_utils.quoteIfNeeded(logical_name),
+                quoting_utils.quoteIfNeeded(physical_name))
+        physical_name_map = jvm.org.apache.spark.api.python.PythonUtils \
+            .toScalaMap(java_name_map)
+
+        in_values = spark.sparkContext._gateway.new_array(jvm.java.lang.Object, 4)
+        for index, value in enumerate([1, 2, 3, 4]):
+            in_values[index] = value
+        logical_filters = [
+            jvm.org.apache.spark.sql.sources.In("id", in_values),
+            jvm.org.apache.spark.sql.sources.IsNotNull("payload")]
+        translator = jvm.com.nvidia.spark.rapids.delta.common.RapidsDeletionVectors
+        translated_filters = [
+            translator.translateFilterForColumnMapping(filter_, physical_name_map)
+            for filter_ in logical_filters]
+        assert all(filter_.isDefined() for filter_ in translated_filters)
+        translated_attributes = [
+            filter_.get().attribute() for filter_ in translated_filters]
+        expected_attributes = [
+            quoting_utils.quoteIfNeeded(gpu_physical_names["id"]),
+            quoting_utils.quoteIfNeeded(gpu_physical_names["payload"])]
+        assert translated_attributes == expected_attributes
+
+    with_gpu_session(assert_filter_translation, conf=conf)
 
     def filtered_read(spark):
         path = gpu_path if spark.conf.get("spark.rapids.sql.enabled") == "true" else cpu_path
