@@ -465,19 +465,22 @@ class ParquetCachedBatchSerializer extends GpuCachedBatchSerializer {
             for (i <- 0 until table.getNumberOfColumns) yield {
               ColumnCastUtil.ifTrueThenDeepConvertTypeAtoTypeB(table.getColumn(i),
                 originalSelectedAttributes(i).dataType,
-                (dataType, _) => dataType match {
+                (dataType, cv) => dataType match {
+                  case BinaryType if cv.getType == DType.STRING => true
                   case d: DecimalType if d.scale < 0 => true
                   case _ => false
                 },
                 (dataType, cv) => {
                   dataType match {
+                    case BinaryType =>
+                      ParquetSchemaUtils.convertStringToBinary(cv)
                     case d: DecimalType =>
                       withResource(cv.bitCastTo(DecimalUtil.createCudfDecimal(d))) {
                         _.copyToColumnVector()
                       }
                     case _ =>
-                      throw new IllegalStateException("We don't cast any type besides Decimal " +
-                          "with scale < 0")
+                      throw new IllegalStateException("We only cast STRING-backed BinaryType " +
+                          "and DecimalType with scale < 0")
                   }
                 }
               )
