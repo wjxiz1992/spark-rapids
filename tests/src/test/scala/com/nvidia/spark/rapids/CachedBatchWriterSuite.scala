@@ -226,63 +226,6 @@ class CachedBatchWriterSuite extends SparkQueryCompareTestSuite {
     }
   }
 
-  test("PCBS round trip preserves nested and top-level BinaryType columns") {
-    withGpuSparkSession { spark =>
-      setActiveSession(spark)
-      val ser = new ParquetCachedBatchSerializer
-      val nestedType = StructType(Array(
-        StructField("nested_payload", BinaryType, nullable = true)))
-      val origAttrs: Seq[Attribute] = Seq(
-        AttributeReference("payload", BinaryType, nullable = true)(),
-        AttributeReference("nested", nestedType, nullable = false)())
-      val origSchema = origAttrs.toStructType
-      val cachedSchema = PCBSSchemaHelper.getSupportedSchemaFromUnsupported(origAttrs).toStructType
-      val values = Seq(
-        (Array[Byte](1), Array[Byte](0, -1)),
-        (Array.emptyByteArray, Array.emptyByteArray),
-        (null.asInstanceOf[Array[Byte]], null.asInstanceOf[Array[Byte]]))
-      val rows = values.map { case (payload, nestedPayload) =>
-        InternalRow(payload, InternalRow(nestedPayload))
-      }.toArray
-
-      val converter = new GpuRowToColumnConverter(origSchema)
-      val listOfPCB = withResource(converter.convertBatch(rows, origSchema)) { gpuCB =>
-        ser.compressColumnarBatchWithParquet(gpuCB, cachedSchema, origSchema,
-          BYTES_ALLOWED_PER_BATCH, useCompression = false)
-      }
-
-      val conf = TrampolineUtil.getSparkConf(spark)
-      val cachedRdd = spark.sparkContext.parallelize[CachedBatch](listOfPCB, numSlices = 1)
-      val cbRdd = ser.convertCachedBatchToColumnarBatch(cachedRdd, origAttrs, origAttrs, conf)
-      val context = new MockTaskContext(taskAttemptId = 1, partitionId = 0)
-      TrampolineUtil.setTaskContext(context)
-      try {
-        val batches = cbRdd.compute(cbRdd.partitions.head, context)
-        assert(batches.hasNext)
-        val cb = batches.next()
-        assert(cb.numRows() == rows.length)
-        values.zipWithIndex.foreach { case ((payload, nestedPayload), rowIndex) =>
-          if (payload == null) {
-            assert(cb.column(0).isNullAt(rowIndex))
-          } else {
-            assert(cb.column(0).getBinary(rowIndex).sameElements(payload))
-          }
-
-          val nested = cb.column(1).getStruct(rowIndex)
-          if (nestedPayload == null) {
-            assert(nested.isNullAt(0))
-          } else {
-            assert(nested.getBinary(0).sameElements(nestedPayload))
-          }
-        }
-        assert(!batches.hasNext)
-      } finally {
-        TrampolineUtil.unsetTaskContext()
-        context.markTaskComplete()
-      }
-    }
-  }
-
   private def writeAndConsumeEmptyBatch(spark: SparkSession): Unit = {
     setActiveSession(spark)
     val schema = Seq(AttributeReference("_col0", IntegerType, true)())

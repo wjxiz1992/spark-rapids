@@ -286,7 +286,10 @@ object ColumnCastUtil {
     withResource(new ArrayBuffer[ColumnView]) { toClose =>
       val tmp = convertTypeAToTypeB(cv, dataType, predicate, toClose)
       if (tmp != cv) {
-        tmp.copyToColumnVector()
+        tmp match {
+          case vector: ColumnVector => vector.incRefCount()
+          case _ => tmp.copyToColumnVector()
+        }
       } else {
         tmp.asInstanceOf[ColumnVector].incRefCount()
       }
