@@ -22,6 +22,7 @@ import scala.collection.mutable.ListBuffer
 
 import com.nvidia.spark.rapids.GpuOverrides.regexMetaChars
 import com.nvidia.spark.rapids.RegexParser.toReadableString
+import com.nvidia.spark.rapids.RegexQuantifier.{Base, Mode}
 
 import org.apache.spark.unsafe.types.UTF8String
 
@@ -2015,8 +2016,6 @@ object RegexQuantifier {
   case object Reluctant extends Mode
   case object Possessive extends Mode
 }
-
-import RegexQuantifier.{Base, Mode}
 
 sealed case class RegexQuantifier(base: RegexQuantifier.Base, mode: RegexQuantifier.Mode) {
   import RegexQuantifier._
