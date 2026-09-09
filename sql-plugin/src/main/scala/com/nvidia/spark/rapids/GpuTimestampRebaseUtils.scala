@@ -88,7 +88,13 @@ private[rapids] object GpuTimestampRebaseUtils {
         s"expected TIMESTAMP_MICROSECONDS but found ${input.getType}")
       if (input.getRowCount == 0 || isModernOrAllNull(input)) {
         retainOrCopy(input)
-      } else if (switches.isEmpty) {
+      } else {
+        rebaseLegacy(input)
+      }
+    }
+
+    private[rapids] def rebaseLegacy(input: ColumnView): ColumnVector = {
+      if (switches.isEmpty) {
         // Spark's bundled map can lag valid IDs added by newer JDK timezone databases.
         rebaseOnHost(input)
       } else {
@@ -124,7 +130,7 @@ private[rapids] object GpuTimestampRebaseUtils {
         if (delegate == null) {
           delegate = createJulianToGregorianMicrosContext(timeZoneId)
         }
-        delegate.rebase(input)
+        delegate.rebaseLegacy(input)
       }
     }
 
