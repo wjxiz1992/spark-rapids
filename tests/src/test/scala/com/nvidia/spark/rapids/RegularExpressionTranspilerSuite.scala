@@ -1729,10 +1729,8 @@ class FuzzRegExp(suggestedChars: String, skipKnownIssues: Boolean = true,
       () => Fixed(rr.nextInt(3)),
       () => Variable(rr.nextInt(3), None),
       () => {
-        // this intentionally generates some invalid quantifiers where the maxLength
-        // is less than the minLength, such as "{2,1}" which should be handled as a
-        // literal string match on "{2,1}" rather than as a valid quantifier.
-        Variable(rr.nextInt(3), Some(rr.nextInt(3)))
+        val minLength = rr.nextInt(3)
+        Variable(minLength, Some(minLength + rr.nextInt(3)))
       }
     )
     generators(rr.nextInt(generators.length))()

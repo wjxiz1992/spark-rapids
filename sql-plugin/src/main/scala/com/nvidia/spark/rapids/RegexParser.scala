@@ -171,17 +171,19 @@ class RegexParser(pattern: String) {
         case Some(',') =>
           consumeExpected(',')
           val maxLength = consumeInt()
-          if (peek().contains('}') && maxLength.forall(_ >= minLength)) {
-            consumeExpected('}')
-            Some(Variable(minLength, maxLength))
-          } else {
-            None
+          if (!peek().contains('}')) {
+            throw new PatternSyntaxException("Unclosed counted closure", pattern, pos)
           }
+          maxLength.filter(_ < minLength).foreach { _ =>
+            throw new PatternSyntaxException("Illegal repetition range", pattern, pos)
+          }
+          consumeExpected('}')
+          Some(Variable(minLength, maxLength))
         case Some('}') =>
           consumeExpected('}')
           Some(Fixed(minLength))
         case _ =>
-          None
+          throw new PatternSyntaxException("Unclosed counted closure", pattern, pos)
       }
     }
   }
@@ -1603,8 +1605,7 @@ class CudfRegexTranspiler(mode: RegexMode) {
             "regexp_split on GPU does not support empty match repetition consistently with Spark",
             quantifier.position)
 
-        case (_, RegexQuantifier(Variable(0, Some(0)) | Fixed(0), _))
-            if mode != RegexFindMode =>
+        case (_, RegexQuantifier(Variable(0, Some(0)) | Fixed(0), _)) if mode != RegexFindMode =>
           throw new RegexUnsupportedException(
             s"regex_replace and regex_split on GPU do not support repetition with " +
               s"${quantifier.toRegexString}",
@@ -2015,12 +2016,12 @@ object RegexQuantifier {
   case object Possessive extends Mode
 }
 
-sealed case class RegexQuantifier(
-    base: RegexQuantifier.Base,
-    mode: RegexQuantifier.Mode) {
+import RegexQuantifier.{Base, Mode}
+
+sealed case class RegexQuantifier(base: RegexQuantifier.Base, mode: RegexQuantifier.Mode) {
   import RegexQuantifier._
 
-  def this(base: RegexQuantifier.Base, mode: RegexQuantifier.Mode, position: Int) = {
+  def this(base: Base, mode: Mode, position: Int) = {
     this(base, mode)
     this.position = Some(position)
   }

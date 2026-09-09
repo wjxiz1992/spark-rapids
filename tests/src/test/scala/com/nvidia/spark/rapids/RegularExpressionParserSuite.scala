@@ -114,6 +114,19 @@ class RegularExpressionParserSuite extends AnyFunSuite {
     }
   }
 
+  test("unchecked parser matches Java errors for malformed counted quantifiers") {
+    Seq("a{3,4!", "a{3,2}").foreach { pattern =>
+      val expected = intercept[PatternSyntaxException] {
+        java.util.regex.Pattern.compile(pattern)
+      }
+      val actual = intercept[PatternSyntaxException] {
+        new RegexParser(pattern).parseUnchecked()
+      }
+      assert(actual.getDescription === expected.getDescription, pattern)
+      assert(actual.getIndex === expected.getIndex, pattern)
+    }
+  }
+
   // Regression test for https://github.com/NVIDIA/cudf-spark/issues/15495
   test("quantifier integer boundaries") {
     val supportedBoundaries: Seq[(String, RegexQuantifier)] = Seq(
