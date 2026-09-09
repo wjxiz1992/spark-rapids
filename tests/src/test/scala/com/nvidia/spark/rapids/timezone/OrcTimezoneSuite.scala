@@ -88,6 +88,8 @@ class OrcTimezoneSuite extends SparkQueryCompareTestSuite {
 
   // Exact Asia/Shanghai writer=reader reproducer for the ORC epoch borrow correction.
   private val ShanghaiEpochBorrowTsUs = -7713116127L
+  // Exact SPARK-31284 value after reader-timezone Julian-to-Gregorian rebasing.
+  private val Spark31284TimestampUs = -30578655898876544L
   // Exact pre-first-transition values from non-UTC schema-evolution failures.
   private val newYorkHistoricalTsUs = -2957649381472612L
   private val shanghaiHistoricalTsUs = -3649379812521628L
@@ -141,6 +143,8 @@ class OrcTimezoneSuite extends SparkQueryCompareTestSuite {
       ParisFirstTransitionLocalUs,
       ParisFirstTransitionLocalUs + 1L)
     Seq(
+      Spark31284TimestampUs,
+      Spark31284TimestampUs,
       newYorkHistoricalTsUs,
       shanghaiHistoricalTsUs,
       ShanghaiEpochBorrowTsUs,

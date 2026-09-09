@@ -19,6 +19,7 @@ package com.nvidia.spark.rapids
 import java.io.File
 import java.nio.file.{Files, StandardCopyOption}
 import java.time.{LocalDate, ZoneId}
+import java.util.TimeZone
 
 import ai.rapids.cudf.{ColumnVector, Table}
 import com.nvidia.spark.rapids.Arm.{withResource, withResourceIfAllowed}
@@ -35,6 +36,8 @@ import org.apache.spark.sql.rapids.shims.TrampolineConnectShims.SparkSession
 class OrcCalendarSuite extends SparkQueryCompareTestSuite {
 
   private val legacyDateResource = "test-data/before_1582_date_v2_4.snappy.orc"
+  private val legacyTimestampResource = "test-data/before_1582_ts_v2_4.snappy.orc"
+  private val legacyTimestampValue = "1001-01-01 01:02:03.123456"
   private val dateValue = LocalDate.of(1200, 1, 1).toEpochDay
   private val modernDateValue = LocalDate.of(2000, 1, 1).toEpochDay
 
@@ -51,12 +54,12 @@ class OrcCalendarSuite extends SparkQueryCompareTestSuite {
       .set("spark.sql.files.maxPartitionBytes", (1L << 30).toString)
   }
 
-  private def readLegacyDateResource(spark: SparkSession) = {
+  private def readLegacyResource(spark: SparkSession, resourceName: String) = {
     val resource = Option(Thread.currentThread().getContextClassLoader
-      .getResource(legacyDateResource)).getOrElse {
-      throw new IllegalStateException(s"Missing Spark test resource: $legacyDateResource")
+      .getResource(resourceName)).getOrElse {
+      throw new IllegalStateException(s"Missing Spark test resource: $resourceName")
     }
-    val file = File.createTempFile("spark-24-date", ".orc")
+    val file = File.createTempFile("spark-24-calendar", ".orc")
     file.deleteOnExit()
     val input = resource.openStream()
     try {
@@ -66,6 +69,9 @@ class OrcCalendarSuite extends SparkQueryCompareTestSuite {
     }
     spark.read.orc(file.getCanonicalPath)
   }
+
+  private def readLegacyDateResource(spark: SparkSession) =
+    readLegacyResource(spark, legacyDateResource)
 
   private def setDate(vector: DateColumnVector): Unit = {
     vector.setUsingProlepticCalendar(true)
@@ -152,6 +158,42 @@ class OrcCalendarSuite extends SparkQueryCompareTestSuite {
       skipCanonicalizationCheck = true,
       existClasses = if (v1SourceList == "orc") "GpuFileSourceScanExec" else "GpuBatchScan") {
       frame => frame
+    }
+  }
+
+  for {
+    v1SourceList <- Seq("orc", "")
+    useChunkedReader <- Seq(false, true)
+  } {
+    test(s"read Spark 2.4 legacy ORC timestamp, source list is ($v1SourceList), " +
+        s"chunked=$useChunkedReader") {
+      val originalTimeZone = TimeZone.getDefault
+      val conf = calendarConf(RapidsReaderType.PERFILE, useChunkedReader, v1SourceList)
+      val expectedScan = if (v1SourceList == "orc") "GpuFileSourceScanExec" else "GpuBatchScan"
+      try {
+        val (fromCpu, fromGpu) = runOnCpuAndGpu(
+          spark => {
+            TimeZone.setDefault(TimeZone.getTimeZone("America/Los_Angeles"))
+            spark.conf.set("spark.sql.session.timeZone", "America/Los_Angeles")
+            readLegacyResource(spark, legacyTimestampResource)
+          },
+          identity,
+          conf = conf,
+          repart = 0,
+          skipCanonicalizationCheck = true,
+          existClasses = expectedScan)
+        compareResults(
+          sort = false,
+          floatEpsilon = 0.0,
+          fromCpu = fromCpu,
+          fromGpu = fromGpu)
+        Seq(fromCpu, fromGpu).foreach { rows =>
+          assert(rows.length === 1)
+          assert(rows.head.getTimestamp(0).toString === legacyTimestampValue)
+        }
+      } finally {
+        TimeZone.setDefault(originalTimeZone)
+      }
     }
   }
 
