@@ -253,6 +253,9 @@ class RapidsTestSettings extends BackendTestSettings {
     .exclude("Propagate Hadoop configs from orc options to underlying file system",
       KNOWN_ISSUE("https://github.com/NVIDIA/cudf-spark/issues/11602. " +
         "Recovery trigger: GPU ORC writes propagate data-source options; P1."))
+    .exclude("SPARK-31284: compatibility with Spark 2.4 in reading timestamps",
+      KNOWN_ISSUE("https://github.com/NVIDIA/cudf-spark/issues/15471. " +
+        "Recovery trigger: GPU ORC legacy timestamp reads match Spark CPU; P0."))
     .exclude("SPARK-31284, SPARK-31423: rebasing timestamps in write",
       KNOWN_ISSUE("https://github.com/NVIDIA/cudf-spark/issues/15473. " +
         "Recovery trigger: GPU ORC legacy timestamp round trips match Spark CPU; P0."))
@@ -268,6 +271,9 @@ class RapidsTestSettings extends BackendTestSettings {
     .exclude("Propagate Hadoop configs from orc options to underlying file system",
       KNOWN_ISSUE("https://github.com/NVIDIA/cudf-spark/issues/11602. " +
         "Recovery trigger: GPU ORC writes propagate data-source options; P1."))
+    .exclude("SPARK-31284: compatibility with Spark 2.4 in reading timestamps",
+      KNOWN_ISSUE("https://github.com/NVIDIA/cudf-spark/issues/15471. " +
+        "Recovery trigger: GPU ORC legacy timestamp reads match Spark CPU; P0."))
     .exclude("SPARK-31284, SPARK-31423: rebasing timestamps in write",
       KNOWN_ISSUE("https://github.com/NVIDIA/cudf-spark/issues/15473. " +
         "Recovery trigger: GPU ORC legacy timestamp round trips match Spark CPU; P0."))

@@ -122,6 +122,25 @@ def test_basic_read(std_input_path, name, read_func, v1_enabled_list, orc_impl, 
             read_func(std_input_path + '/' + name),
             conf=all_confs)
 
+
+@pytest.mark.parametrize('v1_enabled_list', ['', 'orc'])
+@pytest.mark.parametrize('vectorized_reader', [False, True])
+@tz_sensitive_test
+def test_orc_read_spark_2_4_legacy_timestamp(
+        std_input_path, v1_enabled_list, vectorized_reader):
+    data_path = std_input_path + '/before_1582_ts_v2_4.snappy.orc'
+    all_confs = {
+        'spark.sql.sources.useV1SourceList': v1_enabled_list,
+        'spark.sql.orc.impl': 'native',
+        'spark.sql.orc.enableVectorizedReader': vectorized_reader,
+    }
+    gpu_scan = 'GpuFileSourceScanExec' if v1_enabled_list == 'orc' else 'GpuBatchScanExec'
+    assert_cpu_and_gpu_are_equal_collect_with_capture(
+        read_orc_df(data_path),
+        exist_classes=gpu_scan,
+        conf=all_confs,
+        require_non_empty=True)
+
 # ORC does not support negative scale for decimal. So here is "decimal_gens_no_neg".
 # Otherwise it will get the below exception.
 # ...
