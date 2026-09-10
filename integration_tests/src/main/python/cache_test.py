@@ -511,11 +511,15 @@ def test_cache_binary_on_gpu(enable_vectorized_conf):
         StructField('id', IntegerType(), nullable=False),
         StructField('payload', BinaryType(), nullable=True),
         StructField('nested', StructType([
-            StructField('nested_payload', BinaryType(), nullable=True)]), nullable=False)])
+            StructField('nested_payload', BinaryType(), nullable=True)]), nullable=False),
+        StructField('array_payload', ArrayType(BinaryType(), containsNull=True), nullable=True),
+        StructField('map_payload', MapType(IntegerType(), BinaryType(), valueContainsNull=True),
+            nullable=True)])
     values = [
-        (0, bytes([1]), (bytes([0, 255]),)),
-        (1, bytes(), (bytes(),)),
-        (2, None, (None,))]
+        (0, bytes([1]), (bytes([0, 255]),),
+            [bytes([0, 255]), bytes(), None], {1: bytes([0, 255]), 2: bytes(), 3: None}),
+        (1, bytes(), (bytes(),), [], {}),
+        (2, None, (None,), None, None)]
 
     def func(spark):
         cached = spark.createDataFrame(
