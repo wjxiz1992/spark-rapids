@@ -22,7 +22,6 @@ import scala.collection.mutable.ListBuffer
 
 import com.nvidia.spark.rapids.GpuOverrides.regexMetaChars
 import com.nvidia.spark.rapids.RegexParser.toReadableString
-import com.nvidia.spark.rapids.RegexQuantifier.{Base, Mode}
 
 import org.apache.spark.unsafe.types.UTF8String
 
@@ -2020,7 +2019,7 @@ object RegexQuantifier {
 sealed case class RegexQuantifier(base: RegexQuantifier.Base, mode: RegexQuantifier.Mode) {
   import RegexQuantifier._
 
-  def this(base: Base, mode: Mode, position: Int) = {
+  def this(base: RegexQuantifier.Base, mode: RegexQuantifier.Mode, position: Int) = {
     this(base, mode)
     this.position = Some(position)
   }
