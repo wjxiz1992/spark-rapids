@@ -126,16 +126,18 @@ def test_basic_read(std_input_path, name, read_func, v1_enabled_list, orc_impl, 
 @pytest.mark.parametrize('v1_enabled_list', ['', 'orc'])
 @pytest.mark.parametrize('vectorized_reader', [False, True])
 @pytest.mark.parametrize('chunked_reader', [False, True])
+@pytest.mark.parametrize('session_timezone', ['UTC', 'Asia/Shanghai'])
 @inject_oom
 @tz_sensitive_test
 def test_orc_read_spark_2_4_legacy_timestamp(
-        std_input_path, v1_enabled_list, vectorized_reader, chunked_reader):
+        std_input_path, v1_enabled_list, vectorized_reader, chunked_reader, session_timezone):
     data_path = std_input_path + '/before_1582_ts_v2_4.snappy.orc'
     all_confs = {
         'spark.sql.sources.useV1SourceList': v1_enabled_list,
         'spark.sql.orc.impl': 'native',
         'spark.sql.orc.enableVectorizedReader': vectorized_reader,
         'spark.rapids.sql.reader.chunked': chunked_reader,
+        'spark.sql.session.timeZone': session_timezone,
     }
     gpu_scan = 'GpuFileSourceScanExec' if v1_enabled_list == 'orc' else 'GpuBatchScanExec'
     assert_cpu_and_gpu_are_equal_collect_with_capture(

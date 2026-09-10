@@ -17,6 +17,7 @@
 package org.apache.spark.sql.rapids
 
 import java.time.{ZoneId, ZoneOffset}
+import java.util.TimeZone
 
 import org.apache.spark.sql.catalyst.util.RebaseDateTime
 
@@ -57,6 +58,13 @@ object RebaseDateTimeBridge {
     }
   }
 
-  def rebaseJulianToGregorianMicros(timeZoneId: String, micros: Long): Long =
-    RebaseDateTime.rebaseJulianToGregorianMicros(timeZoneId, micros)
+  def rebaseJulianToGregorianMicros(timeZoneId: String, micros: Long): Long = {
+    val sparkTimeZoneId = ZoneId.of(timeZoneId, ZoneId.SHORT_IDS) match {
+      // ZoneId normalizes short IDs such as EST to -05:00. Spark's Calendar fallback
+      // uses TimeZone.getTimeZone(String), which silently treats that spelling as GMT.
+      case offset: ZoneOffset => TimeZone.getTimeZone(offset).getID
+      case _ => timeZoneId
+    }
+    RebaseDateTime.rebaseJulianToGregorianMicros(sparkTimeZoneId, micros)
+  }
 }
