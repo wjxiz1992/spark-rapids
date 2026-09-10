@@ -241,11 +241,14 @@ then results in a number being returned when the CPU would have returned null.
 
 ### Hive Text File Decimal
 
-Hive has some limitations in what decimal values it can parse. The GPU kernels that we use
-to parse decimal values do not have the same limitations. This means that there are times
-when the CPU version would return a null for an input value, but the GPU version will
-return a value. This typically happens for numbers with large negative exponents where
-the GPU will return `0` and Hive will return `null`.
+Hive decimal parsing and GPU decimal parsing can differ for long fractional inputs.
+Hive rounds the mantissa to its internal precision before applying the exponent and
+the column's precision and scale, whereas the GPU converts directly to the target scale.
+For example, Hive reads `0.000000000000000000000000000000000000001E39` as `0`,
+while the GPU reads it as `1`. The GPU can also return `null` for zero mantissas with
+large positive exponents, such as `0e+99`, that Hive accepts as `0`. Both readers reject
+inputs with more than 38 integer digits (excluding leading zeros) or an exponent
+outside `[-99, 99]`.
 See https://github.com/NVIDIA/cudf-spark/issues/7246
 
 ## ORC

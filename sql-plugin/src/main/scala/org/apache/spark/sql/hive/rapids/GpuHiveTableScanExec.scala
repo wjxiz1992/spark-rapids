@@ -580,8 +580,45 @@ class GpuHiveDelimitedTextPartitionReader(conf: Configuration,
   override def castStringToInt(input: ColumnVector, intType: DType): ColumnVector =
     CastStrings.toInteger(input, false, false, intType)
 
-  override def castStringToDecimal(input: ColumnVector, dt: DecimalType): ColumnVector =
-    CastStrings.toDecimal(input, false, false, dt.precision, -dt.scale)
+  override def castStringToDecimal(input: ColumnVector, dt: DecimalType): ColumnVector = {
+    // All-null (including empty) batches need no Hive-specific input validation.
+    if (input.getNullCount == input.getRowCount) {
+      return CastStrings.toDecimal(input, false, false, dt.precision, -dt.scale)
+    }
+    // Hive rejects more than 38 integer digits (excluding leading zeros) before applying
+    // the exponent, and rejects exponents outside [-99, 99], even for a zero mantissa.
+    // These restrictions are specific to Hive, not the generic string-to-decimal cast.
+    // Split off the integer part instead of using a large bounded-repeat regex, whose
+    // per-row matching workspace would grow excessively for large input batches.
+    val integerLengths = withResource(Scalar.fromString("+-0")) { leadingChars =>
+      withResource(input.lstrip(leadingChars)) { stripped =>
+        val separator = new RegexProgram("[.eE]", CaptureGroups.NON_CAPTURE)
+        withResource(stripped.stringSplit(separator, 2)) { parts =>
+          parts.getColumn(0).getCharLengths()
+        }
+      }
+    }
+    val integerTooLong = withResource(integerLengths) { _ =>
+      withResource(Scalar.fromInt(38)) { maxIntegerDigits =>
+        integerLengths.greaterThan(maxIntegerDigits)
+      }
+    }
+    val unsupported = withResource(integerTooLong) { _ =>
+      val exponentRegex = new RegexProgram(raw"[eE][+-]?0*[1-9][0-9][0-9]",
+        CaptureGroups.NON_CAPTURE)
+      withResource(input.containsRe(exponentRegex)) { exponentTooLarge =>
+        integerTooLong.or(exponentTooLarge)
+      }
+    }
+    withResource(unsupported) { _ =>
+      withResource(CastStrings.toDecimal(input, false, false, dt.precision, -dt.scale)) {
+          converted =>
+        withResource(Scalar.fromNull(converted.getType)) { nullDecimal =>
+          unsupported.ifElse(nullDecimal, converted)
+        }
+      }
+    }
+  }
 
   /**
    * Override of [[com.nvidia.spark.rapids.GpuTextBasedPartitionReader.castStringToDate()]],

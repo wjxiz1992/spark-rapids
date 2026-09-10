@@ -175,12 +175,8 @@ non_utc_allow_for_test_basic_hive_text_read=['HiveTableScanExec', 'DataWritingCo
     ('hive-delim-text/extended-float-values', make_schema(IntegerType()),        {}),
     ('hive-delim-text/extended-float-values', make_schema(FloatType()),          {}),
     ('hive-delim-text/extended-float-values', make_schema(DoubleType()),         {}),
-    pytest.param('hive-delim-text/extended-float-values',   make_schema(DecimalType(10, 3)),   {},
-        marks=pytest.mark.xfail(reason="GPU supports more valid values than CPU. "
-            "https://github.com/NVIDIA/spark-rapids/issues/7246")),
-    pytest.param('hive-delim-text/extended-float-values',   make_schema(DecimalType(38, 10)),   {},
-        marks=pytest.mark.xfail(reason="GPU supports more valid values than CPU. "
-            "https://github.com/NVIDIA/spark-rapids/issues/7246")),
+    ('hive-delim-text/extended-float-values', make_schema(DecimalType(10, 3)), {}),
+    ('hive-delim-text/extended-float-values', make_schema(DecimalType(38, 10)), {}),
 
     # Custom datasets
     ('hive-delim-text/Acquisition_2007Q3', acq_schema, {}),
@@ -256,6 +252,42 @@ def create_hive_text_table(spark, column_gen, text_table_name, data_path, fields
     spark.sql("CREATE TABLE " + text_table_name + " STORED AS TEXTFILE " +
               "LOCATION '" + data_path + "' " +
               "AS SELECT " + fields + " FROM input_view")
+
+
+@pytest.mark.skipif(is_spark_cdh(), reason="Hive text reads are disabled on CDH")
+@pytest.mark.parametrize('max_rows', [1, 1000])
+@pytest.mark.parametrize('decimal_type', [
+    DecimalType(7, 3), DecimalType(10, 3), DecimalType(38, 10)], ids=idfn)
+@pytest.mark.parametrize('values', [
+    pytest.param([
+        '0', '00012.3400', '+00012.', '-.125', '0' * 100,
+        '1e-99', '1e-100', '1e-00099', '1e-00100', '1e00000',
+        '0e-99', '0e+100', '0e+00100',
+        '1' * 38 + 'e-37', '1' * 39 + 'e-38',
+        '0' * 50 + '1' * 38 + 'e-37', '0' * 50 + '1' * 39 + 'e-38',
+        '-1e-99', '-1e-100', '+1e-99', '+1e-100',
+        '-' + '1' * 38 + 'e-37', '-' + '1' * 39 + 'e-38',
+        r'\N', ' 1', '1 ', 'NaN', 'Infinity'], id='parser-limits'),
+    pytest.param(['0e+99', '0e+00099'], id='zero-positive-exponent',
+        marks=pytest.mark.xfail(reason="GPU rejects zero with a large positive exponent: "
+                               "https://github.com/NVIDIA/cudf-spark/issues/7246")),
+    pytest.param([
+        '0.000000000000000000000000000000000000001E39',
+        '1.00499999999999999999999999999999999995'], id='long-fraction',
+        marks=pytest.mark.xfail(reason="Hive rounds long fractions before applying the exponent "
+                               "and target scale: https://github.com/NVIDIA/cudf-spark/issues/7246"))
+])
+@allow_non_gpu(*non_utc_allow_for_test_basic_hive_text_read)
+def test_hive_text_decimal_parser(spark_tmp_path, spark_tmp_table_factory, decimal_type, values,
+                                 max_rows):
+    # Write the original strings, since creating decimals first would hide parser boundaries.
+    data_path = spark_tmp_path + '/decimal_text'
+    with_cpu_session(lambda spark: spark.createDataFrame(
+        [(value,) for value in values], 'value string').coalesce(1).write.text(data_path))
+    assert_gpu_and_cpu_are_equal_collect(
+        read_hive_text_sql(data_path, make_schema(decimal_type), spark_tmp_table_factory),
+        conf=copy_and_update(hive_text_enabled_conf,
+                             {'spark.rapids.sql.reader.batchSizeRows': max_rows}))
 
 
 def read_hive_text_table(spark, text_table_name, fields="my_field"):
@@ -587,12 +619,8 @@ TableWriteMode = Enum('TableWriteMode', ['CTAS', 'CreateThenWrite'])
     ('hive-delim-text/extended-float-values', make_schema(IntegerType()),        {}),
     ('hive-delim-text/extended-float-values', make_schema(FloatType()),          {}),
     ('hive-delim-text/extended-float-values', make_schema(DoubleType()),         {}),
-    pytest.param('hive-delim-text/extended-float-values',   make_schema(DecimalType(10, 3)),   {},
-                 marks=pytest.mark.xfail(reason="GPU supports more valid values than CPU. "
-                                                "https://github.com/NVIDIA/spark-rapids/issues/7246")),
-    pytest.param('hive-delim-text/extended-float-values',   make_schema(DecimalType(38, 10)),   {},
-                 marks=pytest.mark.xfail(reason="GPU supports more valid values than CPU. "
-                                                "https://github.com/NVIDIA/spark-rapids/issues/7246")),
+    ('hive-delim-text/extended-float-values', make_schema(DecimalType(10, 3)), {}),
+    ('hive-delim-text/extended-float-values', make_schema(DecimalType(38, 10)), {}),
 
     # Custom datasets
     ('hive-delim-text/Acquisition_2007Q3', acq_schema, {}),
