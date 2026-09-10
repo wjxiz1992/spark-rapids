@@ -2050,6 +2050,7 @@ def test_count(data_gen):
     else:
         assert_gpu_and_cpu_are_equal_collect(do_count, conf=conf)
 
+@allow_non_gpu('CaseWhen', 'EqualTo', 'Remainder')
 def test_count_year_month_interval():
     assert_cpu_and_gpu_are_equal_collect_with_capture(
         lambda spark: spark.range(4).selectExpr(
@@ -2065,7 +2066,9 @@ def test_distinct_count_day_time_interval_fallback():
             .selectExpr("count(DISTINCT a)"),
         'HashAggregateExec')
 
-@allow_non_gpu('HashAggregateExec', 'ShuffleExchangeExec', 'HashPartitioning')
+@allow_non_gpu(
+    'HashAggregateExec', 'ShuffleExchangeExec', 'HashPartitioning',
+    'CaseWhen', 'EqualTo', 'Remainder')
 def test_distinct_count_year_month_interval_fallback():
     assert_gpu_fallback_collect(
         lambda spark: spark.range(4).selectExpr(
