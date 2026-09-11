@@ -35,11 +35,12 @@ from spark_session import with_gpu_session, with_cpu_session, reset_spark_sessio
 
 pytestmark = iceberg_unsupported_mark
 
-# Iceberg 1.11.0 fixes cached equality-delete records being interpreted in the wrong field order:
-# https://github.com/apache/iceberg/pull/15514. Keep the quarantine for older/unknown runtimes.
+# Iceberg 1.10.2 and 1.11.0 fix cached equality-delete records being interpreted in the wrong
+# field order: https://github.com/apache/iceberg/pull/15514 (backport: #15605).
+# Keep the quarantine for older/unknown runtimes.
 _iceberg_eq_delete_cache_bug = (
     runtime_iceberg_version is None or
-    tuple(int(part) for part in runtime_iceberg_version.split('.')[:2]) < (1, 11))
+    tuple(int(part) for part in runtime_iceberg_version.split('.')[:3]) < (1, 10, 2))
 
 
 # Eq-delete pair coverage. All 14 eligible eq-delete columns of iceberg_table_gen
