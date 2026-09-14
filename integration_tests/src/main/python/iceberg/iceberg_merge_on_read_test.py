@@ -37,9 +37,10 @@ pytestmark = iceberg_unsupported_mark
 
 # Iceberg 1.10.2 and 1.11.0 fix cached equality-delete records being interpreted in the wrong
 # field order: https://github.com/apache/iceberg/pull/15514 (backport: #15605).
-# Keep the quarantine for older/unknown runtimes.
+# Keep the quarantine for older runtimes. Iceberg runs fail during pytest configuration when the
+# runtime version is unavailable.
 _iceberg_eq_delete_cache_bug = (
-    runtime_iceberg_version is None or
+    runtime_iceberg_version is not None and
     tuple(int(part) for part in runtime_iceberg_version.split('.')[:3]) < (1, 10, 2))
 
 
