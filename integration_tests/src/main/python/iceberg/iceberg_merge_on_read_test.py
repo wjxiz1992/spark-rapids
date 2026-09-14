@@ -137,11 +137,8 @@ def test_iceberg_v2_position_delete_with_url_encoded_path(spark_tmp_table_factor
 @ignore_order(local=True)
 @pytest.mark.parametrize('reader_type', rapids_reader_types)
 @pytest.mark.skipif(is_iceberg_remote_catalog(), reason = "S3tables catalog is managed")
-@pytest.mark.xfail(condition=_iceberg_eq_delete_cache_bug,
-                   reason="https://github.com/NVIDIA/spark-rapids/issues/12885")
-@pytest.mark.datagen_overrides(seed=1749483297, permanent=True,
-                               condition=_iceberg_eq_delete_cache_bug,
-                               reason="Debug https://github.com/NVIDIA/spark-rapids/issues/12885")
+@pytest.mark.skipif(condition=_iceberg_eq_delete_cache_bug,
+                    reason="https://github.com/NVIDIA/spark-rapids/issues/12885")
 def test_iceberg_v2_mixed_deletes(spark_tmp_table_factory, spark_tmp_path, reader_type,
                                   register_iceberg_add_eq_deletes_udf):
     table_name = setup_base_iceberg_table(spark_tmp_table_factory)
@@ -324,11 +321,8 @@ def test_iceberg_v3_deletion_vector_count_with_name_mapping(
 @pytest.mark.parametrize('reader_type', rapids_reader_types)
 @pytest.mark.skipif(is_iceberg_remote_catalog(), reason = "S3tables catalog is managed")
 @pytest.mark.skipif(not supports_iceberg_v3, reason=ICEBERG_V3_UNSUPPORTED_REASON)
-@pytest.mark.xfail(condition=_iceberg_eq_delete_cache_bug,
-                   reason="https://github.com/NVIDIA/spark-rapids/issues/12885")
-@pytest.mark.datagen_overrides(seed=1749483297, permanent=True,
-                               condition=_iceberg_eq_delete_cache_bug,
-                               reason="Debug https://github.com/NVIDIA/spark-rapids/issues/12885")
+@pytest.mark.skipif(condition=_iceberg_eq_delete_cache_bug,
+                    reason="https://github.com/NVIDIA/spark-rapids/issues/12885")
 @validate_execs_in_gpu_plan('GpuBatchScanExec')
 def test_iceberg_v3_mixed_deletes(spark_tmp_table_factory, spark_tmp_path, reader_type,
                                   register_iceberg_add_eq_deletes_udf):
