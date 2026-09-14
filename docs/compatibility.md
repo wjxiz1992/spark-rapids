@@ -447,6 +447,8 @@ Spark's PERMISSIVE bad-record handling. Duplicate keys are kept in document orde
 
 Known issues are:
 
+- There can be rounding differences when formatting floating-point numbers as strings. For example, Spark may
+  produce `-4.1243574E26` but the GPU may produce `-4.124357351E26`.
 - Not all JSON options are respected
 
 ### `get_json_object` Function
