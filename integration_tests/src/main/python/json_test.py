@@ -1393,18 +1393,20 @@ def _canonicalize_floating_point_json(rows, pack_format):
         return ('number_bits', struct.pack(pack_format, float(value)))
 
     def freeze_json(value):
-        if isinstance(value, dict):
-            # Keep insertion order so this ignores only number spelling differences.
-            return ('object', tuple((key, freeze_json(item)) for key, item in value.items()))
         if isinstance(value, list):
             return ('array', tuple(freeze_json(item) for item in value))
         return value
+
+    def object_as_pairs(pairs):
+        # Preserve member order and duplicates so only number spelling is normalized.
+        return ('object', tuple((key, freeze_json(item)) for key, item in pairs))
 
     def canonicalize_json_text(value):
         if value is None:
             return ('sql_null',)
         return ('json', freeze_json(json.loads(
                 value,
+                object_pairs_hook=object_as_pairs,
                 parse_float=number_as_source_bits,
                 parse_int=number_as_source_bits)))
 
@@ -1417,6 +1419,21 @@ def _canonicalize_floating_point_json(rows, pack_format):
 def _canonicalize_floating_point_json_results(cpu_rows, gpu_rows, pack_format):
     return (_canonicalize_floating_point_json(cpu_rows, pack_format),
             _canonicalize_floating_point_json(gpu_rows, pack_format))
+
+
+@pytest.mark.parametrize('pack_format', ['>f', '>d'])
+@pytest.mark.parametrize('expected,actual', [
+    ('{"a":1}', '{"a":2,"a":1}'),
+    ('{"a":1}', '{"a":1,"a":1}'),
+    ('{"nested":{"a":1}}', '{"nested":{"a":2,"a":1}}'),
+    ('[{"a":1}]', '[{"a":2,"a":1}]'),
+    ('{"a":1,"a":2}', '{"a":2,"a":1}'),
+])
+def test_floating_point_json_comparison_preserves_duplicate_members(pack_format, expected, actual):
+    cpu, gpu = _canonicalize_floating_point_json_results(
+        [Row(value=expected)], [Row(value=actual)], pack_format)
+    with pytest.raises(AssertionError):
+        assert_equal(cpu, gpu)
 
 
 # Spark 400 changed the default timestamp format to "yyyy-MM-dd'T'HH:mm:ss[.SSS][XXXXX]"
