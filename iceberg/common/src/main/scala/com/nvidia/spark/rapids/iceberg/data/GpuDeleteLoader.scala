@@ -89,8 +89,8 @@ class DefaultDeleteLoader(
         }
       }
     }
-    withResource(deleteBatch) { batch =>
-      LazySpillableColumnarBatch(batch, "Eq deletes")
+    withResource(deleteBatch) { _ =>
+      LazySpillableColumnarBatch(deleteBatch, "Eq deletes")
     }
   }
 

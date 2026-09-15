@@ -31,7 +31,7 @@ package com.nvidia.spark.rapids.iceberg.data
 import scala.collection.JavaConverters._
 import scala.language.reflectiveCalls
 
-import ai.rapids.cudf.{DType, HostColumnVector, HostColumnVectorCore, Table => CudfTable}
+import ai.rapids.cudf.{DType, HostColumnVector, HostColumnVectorCore, Rmm, RmmAllocationMode, Table => CudfTable}
 import com.nvidia.spark.rapids.{GpuColumnVector, LazySpillableColumnarBatch, NoopMetric, RapidsConf}
 import com.nvidia.spark.rapids.Arm.withResource
 import com.nvidia.spark.rapids.GpuMetric.{JOIN_TIME, OP_TIME_LEGACY}
@@ -60,12 +60,21 @@ import org.apache.spark.sql.types.{BooleanType, DataType, LongType, StringType, 
 import org.apache.spark.sql.vectorized.{ColumnarBatch, ColumnVector}
 
 class GpuDeleteFilterSuite extends AnyFunSuite with BeforeAndAfterAll {
+  private var initializedRmm = false
+
   override def beforeAll(): Unit = {
+    if (!Rmm.isInitialized) {
+      Rmm.initialize(RmmAllocationMode.CUDA_DEFAULT, null, 0)
+      initializedRmm = true
+    }
     SpillFramework.initialize(new RapidsConf(new SparkConf))
   }
 
   override def afterAll(): Unit = {
     SpillFramework.shutdown()
+    if (initializedRmm) {
+      Rmm.shutdown()
+    }
   }
 
   private def filterInput(deleted: Seq[Boolean]): ColumnarBatch = {
@@ -111,13 +120,18 @@ class GpuDeleteFilterSuite extends AnyFunSuite with BeforeAndAfterAll {
     assert(inputColumns.forall(_.getRefCount == 0))
   }
 
-  test("filterAndDrop closes its input when dropping columns fails") {
+  test("filterAndDrop closes its input and intermediates when dropping columns fails") {
+    val allocatedBefore = Rmm.getTotalBytesAllocated
     val input = filterInput(Seq(false, true, false))
     val inputColumns = GpuColumnVector.extractBases(input)
+    assert(Rmm.getTotalBytesAllocated > allocatedBefore)
     intercept[AssertionError] {
       GpuDeleteFileInfo.filterAndDrop(input, 1, Array(LongType, BooleanType), Array(false))
     }
     assert(inputColumns.forall(_.getRefCount == 0))
+    // Both the filtered table and its converted batch own the result columns.
+    // Either owner leaking would retain their GPU allocations after the input closes.
+    assert(Rmm.getTotalBytesAllocated == allocatedBefore)
   }
 
   private def fixture(deleteFiles: Seq[DeleteFile], _tableSchema: Schema = TABLE_SCHEMA) = new {

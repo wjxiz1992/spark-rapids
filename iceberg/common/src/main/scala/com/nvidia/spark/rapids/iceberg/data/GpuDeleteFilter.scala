@@ -125,13 +125,13 @@ object GpuDeleteFileInfo {
         }
       }
     }
-    withResource(filtered) { newTable =>
+    withResource(filtered) { _ =>
       if (dropMask.nonEmpty) {
-        withResource(GpuColumnVector.from(newTable, outputDataType)) { newBatch =>
+        withResource(GpuColumnVector.from(filtered, outputDataType)) { newBatch =>
           GpuColumnVector.dropColumns(newBatch, dropMask)
         }
       } else {
-        GpuColumnVector.from(newTable, outputDataType)
+        GpuColumnVector.from(filtered, outputDataType)
       }
     }
   }
