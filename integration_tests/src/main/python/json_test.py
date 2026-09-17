@@ -1436,6 +1436,27 @@ def test_floating_point_json_comparison_preserves_duplicate_members(pack_format,
         assert_equal(cpu, gpu)
 
 
+@pytest.mark.parametrize('pack_format,expected,actual,equivalent', [
+    pytest.param('>f', '1.0E-45', '1.4E-45', True, id='float-subnormal-spellings'),
+    pytest.param('>f', '1.1754944E-38', '1.17549435E-38', True,
+                 id='float-min-normal-spellings'),
+    pytest.param('>d', '5.0E-324', '4.9E-324', True, id='double-subnormal-spellings'),
+    pytest.param('>d', '1.0E23', '9.999999999999999E22', True, id='double-large-spellings'),
+    pytest.param('>f', '1.0', '1.0000001192092896', False, id='float-adjacent-values'),
+    pytest.param('>d', '1.0', '1.0000000000000002', False, id='double-adjacent-values'),
+    pytest.param('>f', '-0.0', '0.0', False, id='float-signed-zero'),
+    pytest.param('>d', '-0.0', '0.0', False, id='double-signed-zero'),
+])
+def test_floating_point_json_comparison_numeric_contract(pack_format, expected, actual, equivalent):
+    cpu, gpu = _canonicalize_floating_point_json_results(
+        [Row(value=expected)], [Row(value=actual)], pack_format)
+    if equivalent:
+        assert_equal(cpu, gpu)
+    else:
+        with pytest.raises(AssertionError):
+            assert_equal(cpu, gpu)
+
+
 # Spark 400 changed the default timestamp format to "yyyy-MM-dd'T'HH:mm:ss[.SSS][XXXXX]"
 # We need to explicitly specify the format for Spark 400
 _gpu_supported_timestamp_format_conf = {'timestampFormat': "yyyy-MM-dd'T'HH:mm:ss[.SSS][XXX]"}
