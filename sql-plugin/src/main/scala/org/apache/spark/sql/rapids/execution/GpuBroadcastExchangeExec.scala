@@ -503,6 +503,11 @@ abstract class GpuBroadcastExchangeExecBase(
   }
 
   override protected def doPrepare(): Unit = {
+    // A broadcast executes its child on the bounded broadcast thread pool. If that child waits
+    // for a scalar subquery whose adaptive plan needs another GPU broadcast, the pool can starve
+    // (and deterministically deadlock when its configured size is one). SparkPlan.prepare has
+    // already started these subqueries, so finish them before occupying a broadcast worker.
+    waitForSubqueriesInGpuPlan(child)
     // Materialize the future.
     relationFuture
   }

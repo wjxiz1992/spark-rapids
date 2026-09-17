@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023, NVIDIA CORPORATION.
+ * Copyright (c) 2023-2026, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -22,7 +22,8 @@ import com.nvidia.spark.rapids.SparkQueryCompareTestSuite
 
 import org.apache.spark.TaskContext
 import org.apache.spark.sql.{Dataset, SparkSession}
-import org.apache.spark.sql.internal.StaticSQLConf
+import org.apache.spark.sql.execution.adaptive.AQEPropagateEmptyRelation
+import org.apache.spark.sql.internal.{SQLConf, StaticSQLConf}
 import org.apache.spark.util.Utils
 
 class BroadcastLocalPropertySuite extends SparkQueryCompareTestSuite {
@@ -84,5 +85,40 @@ class BroadcastLocalPropertySuite extends SparkQueryCompareTestSuite {
         }
       }
   })
+  }
+
+  test("nested scalar subqueries do not starve a single-threaded broadcast pool") {
+    withGpuSparkSession(spark => {
+      import spark.implicits._
+
+      withSQLConf(
+        StaticSQLConf.BROADCAST_EXCHANGE_MAX_THREAD_THRESHOLD.key -> "1",
+        SQLConf.ADAPTIVE_EXECUTION_ENABLED.key -> "true",
+        SQLConf.ADAPTIVE_OPTIMIZER_EXCLUDED_RULES.key -> AQEPropagateEmptyRelation.ruleName,
+        "spark.rapids.sql.test.enabled" -> "false") {
+        Seq((2, 1), (2, 2)).toDF("c1", "c2").createOrReplaceTempView("t")
+        try {
+          val result = spark.sql(
+            """with v as (
+              |  select c1, c2, rand() c3 from t
+              |)
+              |select * from v except
+              |select * from v where c1 = (
+              |  with v2 as (
+              |    select c1, c2, rand() c3 from t
+              |  )
+              |  select count(*) from v where c2 not in (
+              |    select c2 from v2 where c3 not in (select c3 from v2)
+              |  )
+              |)
+              |""".stripMargin)
+          assert(result.collect().isEmpty)
+          ExecutionPlanCaptureCallback.assertContains(result, "GpuBroadcastExchangeExec")
+          ExecutionPlanCaptureCallback.assertContains(result, "GpuScalarSubquery")
+        } finally {
+          spark.catalog.dropTempView("t")
+        }
+      }
+    })
   }
 }

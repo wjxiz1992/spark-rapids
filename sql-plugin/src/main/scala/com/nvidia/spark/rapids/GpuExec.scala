@@ -115,6 +115,18 @@ trait GpuExec extends SparkPlan with Logging {
   }
 
   /**
+   * Wait for the subqueries started by [[SparkPlan.prepare]] in a GPU plan tree and consume their
+   * pending results. This is used by GPU broadcast preparation, which must resolve child
+   * subqueries before occupying a bounded broadcast worker.
+   */
+  protected final def waitForSubqueriesInGpuPlan(plan: SparkPlan): Unit = {
+    plan.foreach {
+      case gpuPlan: GpuExec => gpuPlan.waitForSubqueries()
+      case _ =>
+    }
+  }
+
+  /**
    * Return the expressions for this plan node that should be GPU expressions.
    * For most nodes this will be the same as the list of expressions, but some
    * nodes use CPU expressions directly in some cases and will need to override this.
