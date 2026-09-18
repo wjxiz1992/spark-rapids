@@ -1254,6 +1254,7 @@ abstract class AbstractGpuParquetMultiFilePartitionReaderFactory(
         deprecatedVal
       }.getOrElse(rapidsConf.getMultithreadedReaderKeepOrder)
   protected val compressCfg = CpuCompressionConfig.forParquet(rapidsConf)
+  protected val skipReadEstimate = rapidsConf.skipReadEstimate(useChunkedReader)
 
   // We can't use the coalescing files reader when InputFileName, InputFileBlockStart,
   // or InputFileBlockLength because we are combining all the files into a single buffer
@@ -1277,6 +1278,7 @@ abstract class AbstractGpuParquetMultiFilePartitionReaderFactory(
       maxGpuColumnSizeBytes: Long,
       useChunkedReader: Boolean,
       maxChunkedReaderMemoryUsageSizeBytes: Long,
+      skipReadEstimate: Boolean,
       compressCfg: CpuCompressionConfig,
       execMetrics: Map[String, GpuMetric],
       partitionSchema: StructType,
@@ -1312,7 +1314,7 @@ abstract class AbstractGpuParquetMultiFilePartitionReaderFactory(
       isCaseSensitive,
       debugDumpPrefix, debugDumpAlways, maxReadBatchSizeRows, maxReadBatchSizeBytes,
       targetBatchSizeBytes, maxGpuColumnSizeBytes,
-      useChunkedReader, maxChunkedReaderMemoryUsageSizeBytes, compressCfg,
+      useChunkedReader, maxChunkedReaderMemoryUsageSizeBytes, skipReadEstimate, compressCfg,
       metrics, partitionSchema,
       poolConf,
       maxNumFileProcessed, ignoreMissingFiles,
@@ -1451,7 +1453,7 @@ abstract class AbstractGpuParquetMultiFilePartitionReaderFactory(
     new MultiFileParquetPartitionReader(fileIO, conf, files, clippedBlocks.toSeq, isCaseSensitive,
       debugDumpPrefix, debugDumpAlways, maxReadBatchSizeRows, maxReadBatchSizeBytes,
       targetBatchSizeBytes, maxGpuColumnSizeBytes,
-      useChunkedReader, maxChunkedReaderMemoryUsageSizeBytes, compressCfg,
+      useChunkedReader, maxChunkedReaderMemoryUsageSizeBytes, skipReadEstimate, compressCfg,
       metrics, partitionSchema, poolConf, ignoreMissingFiles, ignoreCorruptFiles,
       readUseFieldId)
   }
@@ -1495,6 +1497,7 @@ case class GpuParquetMultiFilePartitionReaderFactory(
       maxGpuColumnSizeBytes: Long,
       useChunkedReader: Boolean,
       maxChunkedReaderMemoryUsageSizeBytes: Long,
+      skipReadEstimate: Boolean,
       compressCfg: CpuCompressionConfig,
       execMetrics: Map[String, GpuMetric],
       partitionSchema: StructType,
@@ -1521,6 +1524,7 @@ case class GpuParquetMultiFilePartitionReaderFactory(
       maxGpuColumnSizeBytes,
       useChunkedReader,
       maxChunkedReaderMemoryUsageSizeBytes,
+      skipReadEstimate,
       compressCfg,
       execMetrics,
       partitionSchema,
@@ -1559,6 +1563,7 @@ abstract class GpuParquetPartitionReaderFactoryBase(
   protected val targetSizeBytes = rapidsConf.gpuTargetBatchSizeBytes
   protected val maxGpuColumnSizeBytes = rapidsConf.maxGpuColumnSizeBytes
   protected val useChunkedReader = rapidsConf.chunkedReaderEnabled
+  protected val skipReadEstimate = rapidsConf.skipReadEstimate(useChunkedReader)
   protected val maxChunkedReaderMemoryUsageSizeBytes =
     if(rapidsConf.limitChunkedReaderMemoryUsage) {
       (rapidsConf.chunkedReaderMemoryUsageRatio * targetSizeBytes).toLong
@@ -1616,7 +1621,7 @@ case class GpuParquetPartitionReaderFactory(
     new ParquetPartitionReader(fileIO, conf, file, singleFileInfo.filePath, singleFileInfo.blocks,
       singleFileInfo.schema, isCaseSensitive, readDataSchema, debugDumpPrefix, debugDumpAlways,
       maxReadBatchSizeRows, maxReadBatchSizeBytes, targetSizeBytes,
-      useChunkedReader, maxChunkedReaderMemoryUsageSizeBytes, compressCfg,
+      useChunkedReader, maxChunkedReaderMemoryUsageSizeBytes, skipReadEstimate, compressCfg,
       metrics, singleFileInfo.dateRebaseMode,
       singleFileInfo.timestampRebaseMode, singleFileInfo.hasInt96Timestamps, readUseFieldId)
   }
@@ -2324,7 +2329,8 @@ trait ParquetPartitionReaderBase extends Logging with ScanWithMetrics
       blockIter: BufferedIterator[BlockMetaData],
       maxReadBatchSizeRows: Int,
       maxReadBatchSizeBytes: Long,
-      readDataSchema: StructType): Seq[BlockMetaData] = {
+      readDataSchema: StructType,
+      skipReadEstimate: Boolean): Seq[BlockMetaData] = {
     val currentChunk = new ArrayBuffer[BlockMetaData]
     var numRows: Long = 0
     var numBytes: Long = 0
@@ -2338,8 +2344,13 @@ trait ParquetPartitionReaderBase extends Logging with ScanWithMetrics
           throw new UnsupportedOperationException("Too many rows in split")
         }
         if (numRows == 0 || numRows + peekedRowGroup.getRowCount <= maxReadBatchSizeRows) {
-          val estimatedBytes = GpuBatchUtils.estimateGpuMemory(readDataSchema,
-            peekedRowGroup.getRowCount)
+          // A chunked reader bounds its own GPU memory usage, so the estimate is redundant
+          // there. See spark.rapids.sql.reader.useReadEstimateFromSchema.
+          val estimatedBytes = if (skipReadEstimate) {
+            0L
+          } else {
+            GpuBatchUtils.estimateGpuMemory(readDataSchema, peekedRowGroup.getRowCount)
+          }
           if (numBytes == 0 || numBytes + estimatedBytes <= maxReadBatchSizeBytes) {
             currentChunk += blockIter.next()
             numRows += currentChunk.last.getRowCount
@@ -2488,6 +2499,7 @@ case class ParquetSingleDataBlockMeta(
  * Both [[MultiFileParquetPartitionReader]] and the Delta-aware coalescing reader extend this
  * class. Neither extends the other.
  *
+ * @param fileIO the file IO interface used to read the files
  * @param conf the Hadoop configuration
  * @param clippedBlocks the block metadata from the original Parquet file that has been clipped
  *                      to only contain the column chunks to be read
@@ -2496,6 +2508,8 @@ case class ParquetSingleDataBlockMeta(
  * @param maxReadBatchSizeBytes soft limit on the maximum number of bytes the reader reads per batch
  * @param targetBatchSizeBytes the target size of a batch
  * @param maxGpuColumnSizeBytes the maximum size of a GPU column
+ * @param skipReadEstimate whether to ignore the schema based GPU memory estimate for a batch
+ * @param compressCfg which compression codecs to decompress on the CPU
  * @param execMetrics metrics
  * @param partitionSchema Schema of partitions.
  * @param poolConf thread pool configuration.
@@ -2511,6 +2525,7 @@ abstract class MultiFileCoalescingParquetPartitionReaderBase(
     maxReadBatchSizeBytes: Long,
     targetBatchSizeBytes: Long,
     maxGpuColumnSizeBytes: Long,
+    skipReadEstimate: Boolean,
     override val compressCfg: CpuCompressionConfig,
     override val execMetrics: Map[String, GpuMetric],
     partitionSchema: StructType,
@@ -2519,7 +2534,7 @@ abstract class MultiFileCoalescingParquetPartitionReaderBase(
     ignoreCorruptFiles: Boolean)
   extends MultiFileCoalescingPartitionReaderBase(conf, clippedBlocks,
     partitionSchema, maxReadBatchSizeRows, maxReadBatchSizeBytes, maxGpuColumnSizeBytes,
-    poolConf, execMetrics)
+    skipReadEstimate, poolConf, execMetrics)
   with ParquetPartitionReaderBase {
 
   // Some implicits to convert the base class to the sub-class and vice versa
@@ -2687,6 +2702,7 @@ abstract class MultiFileCoalescingParquetPartitionReaderBase(
  * in memory that contains just the column chunks that are needed. This avoids sending
  * unnecessary data to the GPU and saves GPU memory.
  *
+ * @param fileIO the file IO interface used to read the files
  * @param conf the Hadoop configuration
  * @param splits the partitioned files to read
  * @param clippedBlocks the block metadata from the original Parquet file that has been clipped
@@ -2701,11 +2717,14 @@ abstract class MultiFileCoalescingParquetPartitionReaderBase(
  * @param useChunkedReader whether to read Parquet by chunks or read all at once
  * @param maxChunkedReaderMemoryUsageSizeBytes soft limit on the number of bytes of internal memory
  *                                             usage that the reader will use
+ * @param skipReadEstimate whether to ignore the schema based GPU memory estimate for a batch
+ * @param compressCfg which compression codecs to decompress on the CPU
  * @param execMetrics metrics
  * @param partitionSchema Schema of partitions.
  * @param poolConf thread pool configuration.
  * @param ignoreMissingFiles Whether to ignore missing files
  * @param ignoreCorruptFiles Whether to ignore corrupt files
+ * @param useFieldId Whether to use field id for column matching
  */
 class MultiFileParquetPartitionReader(
     fileIO: RapidsFileIO,
@@ -2721,6 +2740,7 @@ class MultiFileParquetPartitionReader(
     maxGpuColumnSizeBytes: Long,
     useChunkedReader: Boolean,
     maxChunkedReaderMemoryUsageSizeBytes: Long,
+    skipReadEstimate: Boolean,
     compressCfg: CpuCompressionConfig,
     execMetrics: Map[String, GpuMetric],
     partitionSchema: StructType,
@@ -2730,7 +2750,7 @@ class MultiFileParquetPartitionReader(
     useFieldId: Boolean)
   extends MultiFileCoalescingParquetPartitionReaderBase(fileIO, conf, clippedBlocks,
     isSchemaCaseSensitive, maxReadBatchSizeRows, maxReadBatchSizeBytes, targetBatchSizeBytes,
-    maxGpuColumnSizeBytes, compressCfg, execMetrics, partitionSchema, poolConf,
+    maxGpuColumnSizeBytes, skipReadEstimate, compressCfg, execMetrics, partitionSchema, poolConf,
     ignoreMissingFiles, ignoreCorruptFiles) {
 
   override def readBufferToTablesAndClose(dataBuffer: HostMemoryBuffer, dataSize: Long,
@@ -2807,6 +2827,7 @@ trait HostMemoryBuffersWithMetaData extends HostMemoryBuffersWithMetaDataBase {
  * @param useChunkedReader whether to read Parquet by chunks or read all at once
  * @param maxChunkedReaderMemoryUsageSizeBytes soft limit on the number of bytes of internal memory
  *                                             usage that the reader will use
+ * @param skipReadEstimate whether to ignore the schema based GPU memory estimate for a batch
  * @param execMetrics metrics
  * @param partitionSchema Schema of partitions.
  * @param poolConf thread pool configuration
@@ -2834,6 +2855,7 @@ abstract class AbstractMultiFileCloudParquetPartitionReader(
     maxGpuColumnSizeBytes: Long,
     useChunkedReader: Boolean,
     maxChunkedReaderMemoryUsageSizeBytes: Long,
+    skipReadEstimate: Boolean,
     override val compressCfg: CpuCompressionConfig,
     override val execMetrics: Map[String, GpuMetric],
     partitionSchema: StructType,
@@ -3200,7 +3222,8 @@ abstract class AbstractMultiFileCloudParquetPartitionReader(
               val filePath = new Path(new URI(file.filePath.toString()))
               while (blockChunkIter.hasNext) {
                 val blocksToRead = populateCurrentBlockChunk(blockChunkIter,
-                  maxReadBatchSizeRows, maxReadBatchSizeBytes, fileBlockMeta.readSchema)
+                  maxReadBatchSizeRows, maxReadBatchSizeBytes, fileBlockMeta.readSchema,
+                  skipReadEstimate)
                 val (dataBuffer, blockMeta) =
                   readPartFile(blocksToRead, fileBlockMeta.schema, filePath)
                 val numRows = blocksToRead.map(_.getRowCount).sum.toInt
@@ -3332,6 +3355,7 @@ class MultiFileCloudParquetPartitionReader(
     maxGpuColumnSizeBytes: Long,
     useChunkedReader: Boolean,
     maxChunkedReaderMemoryUsageSizeBytes: Long,
+    skipReadEstimate: Boolean,
     override val compressCfg: CpuCompressionConfig,
     override val execMetrics: Map[String, GpuMetric],
     partitionSchema: StructType,
@@ -3346,9 +3370,9 @@ class MultiFileCloudParquetPartitionReader(
   extends AbstractMultiFileCloudParquetPartitionReader(fileIO, conf, files, filterFunc,
     isSchemaCaseSensitive, debugDumpPrefix, debugDumpAlways, maxReadBatchSizeRows,
     maxReadBatchSizeBytes, targetBatchSizeBytes, maxGpuColumnSizeBytes, useChunkedReader,
-    maxChunkedReaderMemoryUsageSizeBytes, compressCfg, execMetrics, partitionSchema,
-    poolConf, maxNumFileProcessed, ignoreMissingFiles, ignoreCorruptFiles, useFieldId,
-    queryUsesInputFile, keepReadsInOrder, combineConf) {
+    maxChunkedReaderMemoryUsageSizeBytes, skipReadEstimate, compressCfg, execMetrics,
+    partitionSchema, poolConf, maxNumFileProcessed, ignoreMissingFiles, ignoreCorruptFiles,
+    useFieldId, queryUsesInputFile, keepReadsInOrder, combineConf) {
 
   override protected def readBufferToBatches(buffer: HostMemoryBuffersWithMetaData)
   : Iterator[ColumnarBatch] = {
@@ -3764,6 +3788,7 @@ case class ParquetTableReader(
  * @param readDataSchema the Spark schema describing what will be read
  * @param debugDumpPrefix a path prefix to use for dumping the fabricated Parquet data or null
  * @param debugDumpAlways whether to debug dump always or only on errors
+ * @param skipReadEstimate whether to ignore the schema based GPU memory estimate for a batch
  */
 abstract class AbstractParquetPartitionReader(
     override val fileIO: RapidsFileIO,
@@ -3778,6 +3803,7 @@ abstract class AbstractParquetPartitionReader(
     debugDumpAlways: Boolean,
     maxReadBatchSizeRows: Integer,
     maxReadBatchSizeBytes: Long,
+    skipReadEstimate: Boolean,
     override val compressCfg: CpuCompressionConfig,
     override val execMetrics: Map[String, GpuMetric],
     useFieldId: Boolean) extends FilePartitionReaderBase(conf, execMetrics)
@@ -3810,7 +3836,7 @@ abstract class AbstractParquetPartitionReader(
   private def readBatches(): Iterator[ColumnarBatch] = {
     NvtxRegistry.PARQUET_READ_BATCH {
       val currentChunkedBlocks = populateCurrentBlockChunk(blockIterator,
-        maxReadBatchSizeRows, maxReadBatchSizeBytes, readDataSchema)
+        maxReadBatchSizeRows, maxReadBatchSizeBytes, readDataSchema, skipReadEstimate)
       if (clippedParquetSchema.getFieldCount == 0) {
         // not reading any data, so return a degenerate ColumnarBatch with the row count
         val numRows = computeNumRowsAlive(
@@ -3883,6 +3909,7 @@ class ParquetPartitionReader(
     targetBatchSizeBytes: Long,
     useChunkedReader: Boolean,
     maxChunkedReaderMemoryUsageSizeBytes: Long,
+    skipReadEstimate: Boolean,
     override val compressCfg: CpuCompressionConfig,
     override val execMetrics: Map[String, GpuMetric],
     dateRebaseMode: DateTimeRebaseMode,
@@ -3891,7 +3918,7 @@ class ParquetPartitionReader(
     useFieldId: Boolean) extends AbstractParquetPartitionReader(
   fileIO, conf, split, filePath, clippedBlocks, clippedParquetSchema, isSchemaCaseSensitive,
   readDataSchema, debugDumpPrefix, debugDumpAlways, maxReadBatchSizeRows, maxReadBatchSizeBytes,
-  compressCfg, execMetrics, useFieldId) {
+  skipReadEstimate, compressCfg, execMetrics, useFieldId) {
 
   override protected def readBuffer(
       parquetOpts: ParquetOptions,
