@@ -627,9 +627,17 @@ object GpuBroadcastExchangeExecBase {
 
   val executionContext = ExecutionContext.fromExecutorService(broadcastExecutor)
 
-  // Preparation may recursively depend on other preparations, so it must not use a bounded pool.
-  private val preparationContext = ExecutionContext.fromExecutorService(
-    org.apache.spark.util.ThreadUtils.newDaemonCachedThreadPool("gpu-broadcast-prepare"))
+  // Bound preparation threads, but run saturated submissions on their callers instead of
+  // queuing descendants behind workers waiting for them.
+  private[rapids] val preparationExecutor =
+    new ThreadPoolExecutor(
+      0,
+      SQLConf.get.getConf(StaticSQLConf.BROADCAST_EXCHANGE_MAX_THREAD_THRESHOLD),
+      60L, TimeUnit.SECONDS, new SynchronousQueue[Runnable](),
+      org.apache.spark.util.ThreadUtils.namedThreadFactory("gpu-broadcast-prepare"),
+      new ThreadPoolExecutor.CallerRunsPolicy())
+
+  private val preparationContext = ExecutionContext.fromExecutorService(preparationExecutor)
 
   /** One completion and cancellation boundary for preparation and materialization. */
   private[rapids] class BroadcastFuture[T] extends CompletableFuture[T] {

@@ -120,6 +120,26 @@ class BroadcastLocalPropertySuite
     }
   }
 
+  private def withPreparationThreads(threads: Int)(f: => Unit): Unit = {
+    val executor = GpuBroadcastExchangeExecBase.preparationExecutor
+    val maxThreads = executor.getMaximumPoolSize
+    val coreThreads = executor.getCorePoolSize
+    // Both pools capture the same static threshold when their containing object initializes.
+    assert(maxThreads == GpuBroadcastExchangeExecBase.broadcastExecutor.getMaximumPoolSize)
+    executor.setCorePoolSize(math.min(coreThreads, threads))
+    executor.setMaximumPoolSize(threads)
+    try {
+      eventually(timeout(10.seconds)) {
+        assert(executor.getActiveCount == 0)
+        assert(executor.getPoolSize <= threads)
+      }
+      f
+    } finally {
+      executor.setMaximumPoolSize(maxThreads)
+      executor.setCorePoolSize(coreThreads)
+    }
+  }
+
   for (cpuFilter <- Seq(false, true)) {
     test(s"nested scalar subqueries do not starve broadcast pool (CPU filter: $cpuFilter)") {
       def query(spark: SparkSession): DataFrame = {
@@ -156,36 +176,38 @@ class BroadcastLocalPropertySuite
       }, conf)
       assert(expected.isEmpty)
 
-      withGpuSparkSession(spark => withSingleBroadcastThread {
-        withSQLConf("spark.rapids.sql.test.enabled" -> "false") {
-          try {
-            val result = query(spark)
-            assert(result.collect().toSeq == expected)
-            ExecutionPlanCaptureCallback.assertContains(result, "GpuBroadcastExchangeExec")
-            if (cpuFilter) {
-              val executed = ExecutionPlanCaptureCallback.extractExecutedPlan(
-                result.queryExecution.executedPlan)
-              // Spark 4 wraps the final plan in a ResultQueryStageExec.
-              val root = executed match {
-                case stage: QueryStageExec => stage.plan
-                case plan => plan
+      withGpuSparkSession(spark => withPreparationThreads(1) {
+        withSingleBroadcastThread {
+          withSQLConf("spark.rapids.sql.test.enabled" -> "false") {
+            try {
+              val result = query(spark)
+              assert(result.collect().toSeq == expected)
+              ExecutionPlanCaptureCallback.assertContains(result, "GpuBroadcastExchangeExec")
+              if (cpuFilter) {
+                val executed = ExecutionPlanCaptureCallback.extractExecutedPlan(
+                  result.queryExecution.executedPlan)
+                // Spark 4 wraps the final plan in a ResultQueryStageExec.
+                val root = executed match {
+                  case stage: QueryStageExec => stage.plan
+                  case plan => plan
+                }
+                val broadcasts = PlanUtils.findOperators(root,
+                  _.isInstanceOf[GpuBroadcastExchangeExecBase])
+                val filters = broadcasts.flatMap { broadcast =>
+                  PlanUtils.findOperators(broadcast.children.head, _.isInstanceOf[FilterExec])
+                }
+                withClue(s"${result.queryExecution.executedPlan}\n") {
+                  assert(filters.exists(_.expressions.exists(_.exists {
+                    case _: ScalarSubquery => true
+                    case _ => false
+                  })), "a CPU filter below a GPU broadcast must own a scalar subquery")
+                }
+              } else {
+                ExecutionPlanCaptureCallback.assertContains(result, "GpuScalarSubquery")
               }
-              val broadcasts = PlanUtils.findOperators(root,
-                _.isInstanceOf[GpuBroadcastExchangeExecBase])
-              val filters = broadcasts.flatMap { broadcast =>
-                PlanUtils.findOperators(broadcast.children.head, _.isInstanceOf[FilterExec])
-              }
-              withClue(s"${result.queryExecution.executedPlan}\n") {
-                assert(filters.exists(_.expressions.exists(_.exists {
-                  case _: ScalarSubquery => true
-                  case _ => false
-                })), "a CPU filter below a GPU broadcast must own a scalar subquery")
-              }
-            } else {
-              ExecutionPlanCaptureCallback.assertContains(result, "GpuScalarSubquery")
+            } finally {
+              spark.catalog.dropTempView("t")
             }
-          } finally {
-            spark.catalog.dropTempView("t")
           }
         }
       }, conf)
@@ -196,34 +218,59 @@ class BroadcastLocalPropertySuite
       entered: CountDownLatch,
       release: CountDownLatch,
       collected: CountDownLatch,
-      failure: Option[Throwable] = None): GpuBroadcastExchangeExec = {
-    val subquery = ControlledBroadcastSubquery(entered, release, failure)
+      failure: Option[Throwable] = None,
+      beforeResult: () => Unit = () => ()): GpuBroadcastExchangeExec = {
+    val subquery = ControlledBroadcastSubquery(entered, release, failure, beforeResult)
     val child = ControlledBroadcastChild(ScalarSubquery(subquery, ExprId(0)), collected)
     GpuBroadcastExchangeExec(IdentityBroadcastMode, child)(
       BroadcastExchangeExec(IdentityBroadcastMode, child))
   }
 
-  test("sibling preparations overlap without occupying the broadcast executor") {
-    withGpuSparkSession(_ => withSingleBroadcastThread {
-      val entered = new CountDownLatch(2)
-      val release = new CountDownLatch(1)
-      val collected = new CountDownLatch(2)
-      val exchanges = Seq.fill(2)(controlledBroadcast(entered, release, collected))
-      try {
-        exchanges.foreach(_.prepare())
-        assert(entered.await(10, TimeUnit.SECONDS))
-        assert(collected.getCount == 2)
-        // Nested broadcasts must be able to use the sole materialization worker while waiting.
-        val worker = GpuBroadcastExchangeExecBase.executionContext.submit(new Runnable {
-          override def run(): Unit = {}
-        })
-        worker.get(10, TimeUnit.SECONDS)
-        release.countDown()
-        exchanges.foreach(_.relationFuture.get(10, TimeUnit.SECONDS))
-        assert(collected.getCount == 0)
-      } finally {
-        release.countDown()
-        exchanges.foreach(_.relationFuture.cancel(true))
+  test("saturated preparation pool completes nested broadcasts within its thread bound") {
+    withGpuSparkSession(_ => withPreparationThreads(2) {
+      withSingleBroadcastThread {
+        val executor = GpuBroadcastExchangeExecBase.preparationExecutor
+        val entered = new CountDownLatch(2)
+        val release = new CountDownLatch(1)
+        val nestedEntered = new CountDownLatch(2)
+        val nestedRelease = new CountDownLatch(1)
+        val collected = new CountDownLatch(4)
+        val exchanges = Seq.fill(2) {
+          controlledBroadcast(entered, release, collected, beforeResult = () => {
+            val parentThread = Thread.currentThread()
+            val nested = controlledBroadcast(nestedEntered, nestedRelease, collected,
+              beforeResult = () => assert(Thread.currentThread() eq parentThread))
+            try {
+              nested.prepare()
+              nested.relationFuture.get(10, TimeUnit.SECONDS)
+            } finally {
+              nested.relationFuture.cancel(true)
+            }
+          })
+        }
+        try {
+          exchanges.foreach(_.prepare())
+          assert(entered.await(10, TimeUnit.SECONDS))
+          assert(executor.getActiveCount == 2)
+          assert(collected.getCount == 4)
+          // Nested broadcasts must be able to use the sole materialization worker while waiting.
+          val worker = GpuBroadcastExchangeExecBase.executionContext.submit(new Runnable {
+            override def run(): Unit = {}
+          })
+          worker.get(10, TimeUnit.SECONDS)
+          release.countDown()
+          assert(nestedEntered.await(10, TimeUnit.SECONDS))
+          assert(executor.getPoolSize == 2)
+          assert(executor.getMaximumPoolSize == 2)
+          assert(executor.getQueue.isEmpty)
+          nestedRelease.countDown()
+          exchanges.foreach(_.relationFuture.get(10, TimeUnit.SECONDS))
+          assert(collected.getCount == 0)
+        } finally {
+          release.countDown()
+          nestedRelease.countDown()
+          exchanges.foreach(_.relationFuture.cancel(true))
+        }
       }
     })
   }
@@ -246,30 +293,38 @@ class BroadcastLocalPropertySuite
   }
 
   for (cancelByTimeout <- Seq(false, true)) {
-    test(s"cancellation during preparation prevents materialization (timeout: $cancelByTimeout)") {
-      withGpuSparkSession(_ => withSQLConf(SQLConf.BROADCAST_TIMEOUT.key -> "1") {
-        val entered = new CountDownLatch(1)
-        val release = new CountDownLatch(1)
-        val collected = new CountDownLatch(1)
-        val exchange = controlledBroadcast(entered, release, collected)
-        try {
-          exchange.prepare()
-          assert(entered.await(10, TimeUnit.SECONDS))
-          if (cancelByTimeout) {
-            intercept[SparkException] { exchange.executeColumnarBroadcast[Any]() }
-          } else {
-            assert(exchange.relationFuture.cancel(true))
+    test(s"cancellation interrupts saturated nested preparation (timeout: $cancelByTimeout)") {
+      withGpuSparkSession(_ => withPreparationThreads(1) {
+        withSQLConf(SQLConf.BROADCAST_TIMEOUT.key -> "1") {
+          val entered = new CountDownLatch(1)
+          val release = new CountDownLatch(1)
+          val collected = new CountDownLatch(1)
+          val nested = controlledBroadcast(entered, release, collected)
+          val exchange = controlledBroadcast(new CountDownLatch(0), new CountDownLatch(0),
+            collected, beforeResult = () => {
+              nested.prepare()
+              nested.relationFuture.get(10, TimeUnit.SECONDS)
+            })
+          try {
+            exchange.prepare()
+            assert(entered.await(10, TimeUnit.SECONDS))
+            if (cancelByTimeout) {
+              intercept[SparkException] { exchange.executeColumnarBroadcast[Any]() }
+            } else {
+              assert(exchange.relationFuture.cancel(true))
+            }
+            assert(exchange.relationFuture.isCancelled)
+            assert(exchange.completionFuture.isCompleted)
+            val subquery = nested.child.asInstanceOf[ControlledBroadcastChild].subquery.plan
+              .asInstanceOf[ControlledBroadcastSubquery]
+            assert(subquery.finished.await(10, TimeUnit.SECONDS), "preparation must be interrupted")
+            release.countDown()
+            assert(!collected.await(100, TimeUnit.MILLISECONDS))
+          } finally {
+            release.countDown()
+            exchange.relationFuture.cancel(true)
+            nested.relationFuture.cancel(true)
           }
-          assert(exchange.relationFuture.isCancelled)
-          assert(exchange.completionFuture.isCompleted)
-          val subquery = exchange.child.asInstanceOf[ControlledBroadcastChild].subquery.plan
-            .asInstanceOf[ControlledBroadcastSubquery]
-          assert(subquery.finished.await(10, TimeUnit.SECONDS), "preparation must be interrupted")
-          release.countDown()
-          assert(!collected.await(100, TimeUnit.MILLISECONDS))
-        } finally {
-          release.countDown()
-          exchange.relationFuture.cancel(true)
         }
       })
     }
@@ -280,7 +335,8 @@ class BroadcastLocalPropertySuite
 private case class ControlledBroadcastSubquery(
     entered: CountDownLatch,
     release: CountDownLatch,
-    failure: Option[Throwable]) extends BaseSubqueryExec with LeafExecNode {
+    failure: Option[Throwable],
+    beforeResult: () => Unit) extends BaseSubqueryExec with LeafExecNode {
   override def name: String = "controlled broadcast subquery"
   override val child: SparkPlan = ControlledBroadcastInput()
   override protected def doExecute(): RDD[InternalRow] = throw new UnsupportedOperationException
@@ -289,6 +345,7 @@ private case class ControlledBroadcastSubquery(
     entered.countDown()
     try {
       require(release.await(10, TimeUnit.SECONDS), "subquery was not released")
+      beforeResult()
       failure.foreach(throw _)
       Array(InternalRow(1L))
     } finally {
