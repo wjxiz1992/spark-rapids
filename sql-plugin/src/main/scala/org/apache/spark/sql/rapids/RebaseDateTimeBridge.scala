@@ -23,6 +23,7 @@ import org.apache.spark.sql.catalyst.util.RebaseDateTime
 
 /** Access Spark's runtime-specific timestamp rebase records from the sql package. */
 object RebaseDateTimeBridge {
+  // The arrays can be shared with cached Spark records and must be treated as read-only.
   final case class RebaseInfo(switches: Array[Long], diffs: Array[Long])
 
   private val MicrosPerSecond = 1000000L
@@ -32,19 +33,19 @@ object RebaseDateTimeBridge {
 
   val lastSwitchJulianTs: Long = RebaseDateTime.lastSwitchJulianTs
 
-  private def copyInfo(timeZoneId: String): Option[RebaseInfo] = {
+  private def lookupInfo(timeZoneId: String): Option[RebaseInfo] = {
     julianToGregorianMicros.get(timeZoneId).map { info =>
-      RebaseInfo(info.switches.clone(), info.diffs.clone())
+      RebaseInfo(info.switches, info.diffs)
     }
   }
 
   def getJulianToGregorianMicros(timeZoneId: String): Option[RebaseInfo] = {
-    copyInfo(timeZoneId).orElse {
+    lookupInfo(timeZoneId).orElse {
       val zoneId = ZoneId.of(timeZoneId, ZoneId.SHORT_IDS)
-      copyInfo(zoneId.getId).orElse {
+      lookupInfo(zoneId.getId).orElse {
         zoneId.normalized() match {
           case offset: ZoneOffset =>
-            copyInfo("UTC").map { utcInfo =>
+            lookupInfo("UTC").map { utcInfo =>
               // A fixed-offset local midnight is shifted by the inverse offset from UTC.
               val switchShift = Math.multiplyExact(
                 -offset.getTotalSeconds.toLong, MicrosPerSecond)
