@@ -20,7 +20,7 @@ from asserts import (assert_cpu_and_gpu_are_equal_collect_with_capture,
                      assert_gpu_fallback_collect)
 from conftest import is_databricks_runtime
 from data_gen import idfn
-from marks import allow_non_gpu, incompat
+from marks import allow_non_gpu, ignore_order, incompat
 from spark_session import (is_before_spark_400, is_databricks173_or_later,
                            is_spark_411_or_later, with_cpu_session)
 
@@ -74,7 +74,10 @@ def _write_heterogeneous_variant_parquet(spark, path):
         (4, '{"x":false}'),
         (5, '{"x":"bad"}'),
         (6, '{"x":null}'),
-        (7, '{"y":"missing"}')
+        (7, '{"y":"missing"}'),
+        (8, '{"x":128}'),
+        (9, '{"x":32768}'),
+        (10, '{"x":2147483648}')
       AS source(id, json)
     """).write.mode('overwrite').parquet(path)
 
@@ -445,20 +448,21 @@ def test_parquet_variant_try_get_aggregate(spark_tmp_path):
 
 
 @incompat
+@ignore_order(local=True)
 @pytest.mark.skipif(is_before_spark_400(), reason='VariantType is available in Spark 4.0+')
 def test_parquet_variant_try_get_heterogeneous_values(spark_tmp_path):
     data_path = spark_tmp_path + '/VARIANT_HETEROGENEOUS_PARQUET'
     _with_cpu_variant_session(lambda spark: _write_heterogeneous_variant_parquet(spark, data_path))
 
-    assert_gpu_and_cpu_are_equal_collect(
+    assert_cpu_and_gpu_are_equal_collect_with_capture(
         lambda spark: spark.read.parquet(data_path).selectExpr(
             "id",
             "try_variant_get(v, '$.x', 'tinyint') AS byte_value",
             "try_variant_get(v, '$.x', 'smallint') AS short_value",
             "try_variant_get(v, '$.x', 'int') AS int_value",
             "try_variant_get(v, '$.x', 'bigint') AS long_value",
-            "try_variant_get(v, '$.x', 'string') AS string_value")
-            .orderBy("id"),
+            "try_variant_get(v, '$.x', 'string') AS string_value"),
+        exist_classes='GpuVariantGet',
         conf=_variant_parquet_conf)
 
 
