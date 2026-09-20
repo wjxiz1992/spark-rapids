@@ -375,12 +375,14 @@ def test_parquet_variant_try_get_integral_boundaries(spark_tmp_path):
             '"imin":-2147483648,"imax":2147483647,' ||
             '"lmin":-9223372036854775808,"lmax":9223372036854775807,' ||
             '"byte_overflow":128,"short_overflow":32768,' ||
-            '"int_overflow":2147483648}') AS v
+            '"int_overflow":2147483648,' ||
+            '"byte_underflow":-129,"short_underflow":-32769,' ||
+            '"int_underflow":-2147483649}') AS v
         """).write.mode('overwrite').parquet(data_path)
 
     _with_cpu_variant_session(write_data)
 
-    assert_gpu_and_cpu_are_equal_collect(
+    assert_cpu_and_gpu_are_equal_collect_with_capture(
         lambda spark: spark.read.parquet(data_path).selectExpr(
             "try_variant_get(v, '$.bmin', 'tinyint') AS bmin",
             "try_variant_get(v, '$.bmin', 'int') AS bmin_as_int",
@@ -397,7 +399,11 @@ def test_parquet_variant_try_get_integral_boundaries(spark_tmp_path):
             "try_variant_get(v, '$.lmax', 'bigint') AS lmax",
             "try_variant_get(v, '$.byte_overflow', 'tinyint') AS byte_overflow",
             "try_variant_get(v, '$.short_overflow', 'smallint') AS short_overflow",
-            "try_variant_get(v, '$.int_overflow', 'int') AS int_overflow"),
+            "try_variant_get(v, '$.int_overflow', 'int') AS int_overflow",
+            "try_variant_get(v, '$.byte_underflow', 'tinyint') AS byte_underflow",
+            "try_variant_get(v, '$.short_underflow', 'smallint') AS short_underflow",
+            "try_variant_get(v, '$.int_underflow', 'int') AS int_underflow"),
+        exist_classes='GpuVariantGet',
         conf=_variant_parquet_conf)
 
 

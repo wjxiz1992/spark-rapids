@@ -241,12 +241,13 @@ object GpuVariantGet {
       }
       (aboveMin, belowMax)
     }
-    withResource(Seq(aboveMinMask, belowMaxMask)) { _ =>
-      withResource(aboveMinMask.and(belowMaxMask)) { inRange =>
-        withResource(Scalar.fromNull(DType.INT64)) { nullValue =>
-          withResource(inRange.ifElse(input, nullValue)) { masked =>
-            masked.castTo(targetType)
-          }
+    val inRange = withResource(Seq(aboveMinMask, belowMaxMask)) { _ =>
+      aboveMinMask.and(belowMaxMask)
+    }
+    withResource(inRange) { inRange =>
+      withResource(Scalar.fromNull(DType.INT64)) { nullValue =>
+        withResource(inRange.ifElse(input, nullValue)) { masked =>
+          masked.castTo(targetType)
         }
       }
     }
