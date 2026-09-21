@@ -237,22 +237,20 @@ object GpuVariantGet {
     val aboveMin = withResource(Scalar.fromLong(minValue)) { min =>
       input.greaterOrEqualTo(min)
     }
-    val (aboveMinMask, belowMaxMask) = closeOnExcept(aboveMin) { _ =>
-      val belowMax = withResource(Scalar.fromLong(maxValue)) { max =>
+    val belowMax = closeOnExcept(aboveMin) { _ =>
+      withResource(Scalar.fromLong(maxValue)) { max =>
         input.lessOrEqualTo(max)
       }
-      (aboveMin, belowMax)
     }
-    val inRange = withResource(Seq(aboveMinMask, belowMaxMask)) { _ =>
-      aboveMinMask.and(belowMaxMask)
+    val inRange = withResource(Seq(aboveMin, belowMax)) { _ =>
+      aboveMin.and(belowMax)
     }
-    withResource(inRange) { inRange =>
+    val masked = withResource(inRange) { inRange =>
       withResource(Scalar.fromNull(DType.INT64)) { nullValue =>
-        withResource(inRange.ifElse(input, nullValue)) { masked =>
-          masked.castTo(targetType)
-        }
+        inRange.ifElse(input, nullValue)
       }
     }
+    withResource(masked)(_.castTo(targetType))
   }
 
   private def evaluateOnCpu(
