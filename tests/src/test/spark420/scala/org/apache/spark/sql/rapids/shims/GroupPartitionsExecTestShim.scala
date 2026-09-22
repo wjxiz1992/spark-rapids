@@ -15,21 +15,19 @@
  */
 
 /*** spark-rapids-shim-json-lines
+{"spark": "420"}
 {"spark": "500"}
 spark-rapids-shim-json-lines ***/
-package com.nvidia.spark.rapids.shims
+package org.apache.spark.sql.rapids.shims
 
+import org.apache.spark.sql.execution.SparkPlan
 import org.apache.spark.sql.execution.datasources.v2.GroupPartitionsExec
 
-object GpuGroupPartitionsShims {
-  // SPARK-59289 keeps only the expected key count after planning the grouping.
-  def expectedPartitionKeyCount(groupPartitions: GroupPartitionsExec): Option[Int] = {
-    groupPartitions.expectedKeyCount
-  }
-
-  // SPARK-59045 wraps each Reducer in KeyReducer. displayName stays on the inner Reducer.
-  def reducerNames(groupPartitions: GroupPartitionsExec): Option[Seq[String]] = {
-    groupPartitions.reducers.map(
-      _.map(_.map(_.reducer.displayName()).getOrElse("identity")))
+// Spark 5 makes the GroupPartitionsExec companion private[sql]. Keeping this test-only
+// trampoline under org.apache.spark.sql lets the shared Spark 4.2/5.0 suite use Spark's factory
+// without duplicating the suite or assembling the factory's derived planning state.
+object GroupPartitionsExecTestShim {
+  def apply(child: SparkPlan, enableSortedMerge: Boolean): GroupPartitionsExec = {
+    GroupPartitionsExec(child, enableSortedMerge = enableSortedMerge)
   }
 }
