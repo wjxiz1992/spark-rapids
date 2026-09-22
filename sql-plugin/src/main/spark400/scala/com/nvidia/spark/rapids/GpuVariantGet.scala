@@ -35,7 +35,7 @@ import scala.util.Try
 
 import ai.rapids.cudf.{ColumnVector, ColumnView, DType, Scalar, VariantUtils}
 import com.nvidia.spark.Retryable
-import com.nvidia.spark.rapids.Arm.withResource
+import com.nvidia.spark.rapids.Arm.{closeOnExcept, withResource}
 import com.nvidia.spark.rapids.RapidsPluginImplicits._
 
 import org.apache.spark.sql.catalyst.expressions.{BoundReference, Expression, Literal,
@@ -239,21 +239,23 @@ object GpuVariantGet {
       minValue: Long,
       maxValue: Long,
       targetType: DType): ColumnVector = {
-    withResource(Scalar.fromLong(minValue)) { min =>
-      withResource(input.greaterOrEqualTo(min)) { aboveMin =>
-        withResource(Scalar.fromLong(maxValue)) { max =>
-          withResource(input.lessOrEqualTo(max)) { belowMax =>
-            withResource(aboveMin.and(belowMax)) { inRange =>
-              withResource(Scalar.fromNull(DType.INT64)) { nullValue =>
-                withResource(inRange.ifElse(input, nullValue)) { masked =>
-                  masked.castTo(targetType)
-                }
-              }
-            }
-          }
-        }
+    val aboveMin = withResource(Scalar.fromLong(minValue)) { min =>
+      input.greaterOrEqualTo(min)
+    }
+    val belowMax = closeOnExcept(aboveMin) { _ =>
+      withResource(Scalar.fromLong(maxValue)) { max =>
+        input.lessOrEqualTo(max)
       }
     }
+    val inRange = withResource(Seq(aboveMin, belowMax)) { _ =>
+      aboveMin.and(belowMax)
+    }
+    val masked = withResource(inRange) { inRange =>
+      withResource(Scalar.fromNull(DType.INT64)) { nullValue =>
+        inRange.ifElse(input, nullValue)
+      }
+    }
+    withResource(masked)(_.castTo(targetType))
   }
 
   private def evaluateOnCpu(
