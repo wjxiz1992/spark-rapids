@@ -12,7 +12,7 @@ The new implementation Drafts are:
 - cudf-spark: [#16107](https://github.com/NVIDIA/cudf-spark/pull/16107)
 - cudf-spark-jni main: [#5191](https://github.com/NVIDIA/cudf-spark-jni/pull/5191)
 - cudf-spark-jni `release/26.10`: [#5192](https://github.com/NVIDIA/cudf-spark-jni/pull/5192)
-- Blossom: [!3047](https://gitlab-master.nvidia.com/nvspark/blossom-jenkins/-/merge_requests/3047)
+- Blossom: internal MR `!3047` (linked from the internal review slides)
 
 All three are deliberately marked `[DO NOT REVIEW]` while the team compares alternatives.
 
