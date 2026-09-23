@@ -267,7 +267,9 @@ release line uses the new job.
 - Convert the existing candidate/pin Draft into a pointer-driven preparation/finalization job.
 - Extend JNI nightly to support build-and-archive without deploy. Existing scheduled behavior stays
   in compatibility mode until the new flow completes a shadow canary.
-- Reuse a retained build only when the full fingerprint matches.
+- Reuse a retained build only when the caller supplies both its Jenkins build number and the full
+  expected fingerprint, and the archived manifest matches both. The durable index that discovers
+  that pair is a rollout review item; omitting the pair deliberately takes the cache-miss path.
 - Run downstream staged validation from an isolated Maven repository.
 - Publish the same bundle to Sonatype and URM only during finalization.
 - Verify repository metadata, provenance, and payload checksums.
