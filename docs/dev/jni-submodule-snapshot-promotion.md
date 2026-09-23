@@ -7,11 +7,12 @@ in [cudf-spark issue #16097](https://github.com/NVIDIA/cudf-spark/issues/16097).
 stack is separate from the earlier immutable-candidate/LKG Drafts. No file, branch, or review state
 is shared between the two alternatives.
 
-The new implementation Draft links are filled in after their initial publication:
+The new implementation Drafts are:
 
-- cudf-spark: `TO-BE-FILLED`
-- cudf-spark-jni: `TO-BE-FILLED`
-- Blossom: `TO-BE-FILLED`
+- cudf-spark: [#16107](https://github.com/NVIDIA/cudf-spark/pull/16107)
+- cudf-spark-jni main: [#5191](https://github.com/NVIDIA/cudf-spark-jni/pull/5191)
+- cudf-spark-jni `release/26.10`: [#5192](https://github.com/NVIDIA/cudf-spark-jni/pull/5192)
+- Blossom: [!3047](https://gitlab-master.nvidia.com/nvspark/blossom-jenkins/-/merge_requests/3047)
 
 All three are deliberately marked `[DO NOT REVIEW]` while the team compares alternatives.
 
