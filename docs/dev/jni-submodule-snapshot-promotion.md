@@ -14,7 +14,7 @@ The new implementation Drafts are:
 - cudf-spark-jni `release/26.10`: [#5192](https://github.com/NVIDIA/cudf-spark-jni/pull/5192)
 - Blossom: internal MR `!3047` (linked from the internal review slides)
 
-All three are deliberately marked `[DO NOT REVIEW]` while the team compares alternatives.
+All four are deliberately marked `[DO NOT REVIEW]` while the team compares alternatives.
 
 ## Relationship to the first alternative
 
