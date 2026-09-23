@@ -129,6 +129,11 @@ Artifact reuse is allowed only when all material inputs match. The fingerprint i
 The fingerprint is a SHA-256 of canonical JSON. It is not a replacement Maven version. It indexes
 the trusted Jenkins retained-artifact cache.
 
+The current Draft pipeline records the configured container image references. Before automated
+cache hits are enabled, the production job must resolve those references to immutable image
+digests and include them in the input map. Until then, callers must omit the cache-hit pair and
+take the build-once cache-miss path.
+
 ## Artifact records
 
 The build job creates two related records:
