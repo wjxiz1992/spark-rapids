@@ -273,6 +273,8 @@ release line uses the new job.
 - Run downstream staged validation from an isolated Maven repository.
 - Publish the same bundle to Sonatype and URM only during finalization.
 - Verify repository metadata, provenance, and payload checksums.
+- Serialize the legacy nightly publisher and pointer finalizer with one Jenkins lock held until
+  dual-repository verification completes.
 - Trigger/retrigger the normal GitHub Actions and Blossom checks for the exact pointer PR head.
 - Never create a second pin PR: the input pointer PR is the promotion request.
 
