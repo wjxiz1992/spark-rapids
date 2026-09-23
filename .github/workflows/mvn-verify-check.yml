@@ -96,6 +96,16 @@ jobs:
             --base-url https://central.sonatype.com/repository/maven-snapshots \
             --attempts 20 \
             --wait-seconds 30
+          jniVersion=$(mvn help:evaluate -q -Dexpression=cudf-spark-jni.version -DforceStdout)
+          mvn $COMMON_MVN_FLAGS -U \
+            org.apache.maven.plugins:maven-dependency-plugin:3.8.1:get \
+            -Dartifact=com.nvidia:cudf-spark-jni:${jniVersion}:jar:cuda12 \
+            -Dtransitive=false
+          python3 jenkins/jni_dependency.py \
+            --pom pom.xml \
+            --pom scala2.13/pom.xml \
+            verify-jar \
+            --jar "$HOME/.m2/repository/com/nvidia/cudf-spark-jni/${jniVersion}/cudf-spark-jni-${jniVersion}-cuda12.jar"
       - name: all shim versions
         id: all212ShimVersionsStep
         run: |
@@ -215,6 +225,27 @@ jobs:
           SCALA_VER: '2.13'
         run: |
           . .github/workflows/mvn-verify-check/populate-daily-cache.sh
+      - name: Verify Sonatype JNI provenance
+        if: env.JNI_PROVENANCE_REQUIRED == 'true'
+        run: |
+          python3 jenkins/jni_dependency.py \
+            --pom pom.xml \
+            --pom scala2.13/pom.xml \
+            verify-repository \
+            --base-url https://central.sonatype.com/repository/maven-snapshots \
+            --attempts 20 \
+            --wait-seconds 30
+          jniVersion=$(mvn help:evaluate -q -f scala2.13/pom.xml \
+            -Dexpression=cudf-spark-jni.version -DforceStdout)
+          mvn $COMMON_MVN_FLAGS -U -f scala2.13/pom.xml \
+            org.apache.maven.plugins:maven-dependency-plugin:3.8.1:get \
+            -Dartifact=com.nvidia:cudf-spark-jni:${jniVersion}:jar:cuda12 \
+            -Dtransitive=false
+          python3 jenkins/jni_dependency.py \
+            --pom pom.xml \
+            --pom scala2.13/pom.xml \
+            verify-jar \
+            --jar "$HOME/.m2/repository/com/nvidia/cudf-spark-jni/${jniVersion}/cudf-spark-jni-${jniVersion}-cuda12.jar"
       - name: all 213 shim verions
         id: all213ShimVersionsStep
         run: |

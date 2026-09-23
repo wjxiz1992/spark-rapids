@@ -45,8 +45,9 @@ The pointer update pull request is the promotion transaction:
 3. It tests cudf-spark against that retained bundle before publication.
 4. Only after the staged tests pass may the same bytes be published to internal URM and public
    Sonatype under the normal moving SNAPSHOT coordinate.
-5. Blossom reads the URM copy and GitHub Actions reads the Sonatype copy. Both verify that the
-   published provenance reports the submodule commit.
+5. Blossom reads the URM copy and GitHub Actions reads the Sonatype copy. Both force-refresh the
+   runtime classifier and verify that repository provenance and the JAR's embedded revision report
+   the submodule commit.
 6. The pull request may merge only after the required checks pass. JNI main and its release
    branches continue to advance independently; a failed pointer update leaves cudf-spark main on
    its previous pointer.
@@ -246,7 +247,9 @@ the window further is an explicit review decision. This Draft does not grant new
   - verifies both POM trees use the same simple SNAPSHOT;
   - verifies a local JAR's embedded JNI revision; and
   - verifies the small Maven provenance attachment from Sonatype or URM.
-- Add the Sonatype check to GitHub Actions and the URM check to Blossom premerge.
+- Add the Sonatype check to GitHub Actions and the URM check to Blossom premerge. Each path also
+  force-refreshes the actual Maven classifier used by the build and checks its embedded JNI SHA;
+  repository metadata alone is not accepted as proof of the resolved dependency.
 - Include this design document in the pointer-guard PR.
 
 ### cudf-spark-jni
@@ -334,6 +337,7 @@ decisions are deterministic and are not delegated to an LLM.
 - Cache hit and cache miss feed identical downstream stages.
 - No artifact is published before staged downstream validation passes.
 - URM and Sonatype provenance both report the exact gitlink JNI SHA.
+- The actual Maven classifier resolved into each CI cache embeds that same JNI SHA.
 - Required runtime classifier checksums match the retained staged bundle.
 - A failed pointer PR leaves cudf-spark main on the previous pointer.
 - An ordinary up-to-main PR does not build JNI from source.
