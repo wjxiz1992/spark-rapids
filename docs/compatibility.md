@@ -251,9 +251,18 @@ See https://github.com/NVIDIA/cudf-spark/issues/7246
 ## ORC
 
 The ORC format has fairly complete support for both reads and writes. There are only a few known
-issues. The first is for reading timestamps and dates around the transition between Julian and
-Gregorian calendars as described [here](https://github.com/NVIDIA/cudf-spark/issues/131). A
-similar issue exists for writing dates as described
+issues. The reader supports rebasing legacy-calendar ORC timestamps, including Spark 2.4 files,
+to Spark's proleptic Gregorian calendar. Rebasing follows the reader JVM's default timezone
+after applying the file's writer timezone; `spark.sql.session.timeZone` does not select the
+rebase timezone. This also applies to timestamps nested in arrays and structs. Values before
+the Common Era and timezones absent from Spark's rebase map use Spark's CPU implementation
+within the GPU reader.
+
+This addresses the legacy timestamp case in [#15471](https://github.com/NVIDIA/cudf-spark/issues/15471).
+The broader set of historical date/timestamp reading limitations remains tracked in
+[#131](https://github.com/NVIDIA/cudf-spark/issues/131). In particular, proleptic Gregorian ORC
+timestamps near the October 1582 cutover can still differ from CPU when the writer and reader
+use different timezones. A similar issue exists for writing dates as described
 [here](https://github.com/NVIDIA/cudf-spark/issues/139). Writing timestamps, however only appears
 to work for dates after the epoch as described
 [here](https://github.com/NVIDIA/cudf-spark/issues/140).
@@ -312,10 +321,12 @@ satisfy the query, the ORC read falls back to the CPU as it is a metadata-only q
 ## Parquet
 
 The Parquet format has more configs because there are multiple versions with some compatibility
-issues between them. Dates and timestamps are where the known issues exist.  For reads when
-`spark.sql.legacy.parquet.datetimeRebaseModeInWrite` is set to `CORRECTED`
-[timestamps](https://github.com/NVIDIA/cudf-spark/issues/132) before the transition between the
-Julian and Gregorian calendars are wrong, but dates are fine. When
+issues between them. Dates and timestamps are where the known issues exist. For files written
+by the CPU on supported Spark versions with both
+`spark.sql.parquet.datetimeRebaseModeInWrite` and `spark.sql.parquet.int96RebaseModeInWrite`
+set to `CORRECTED`, GPU reads support timestamps before the transition between the Julian
+and Gregorian calendars. This does not change LEGACY rebasing or INT96 timestamp-conversion
+limitations. When
 `spark.sql.legacy.parquet.datetimeRebaseModeInWrite` is set to `LEGACY`, the read may fail for
 values occurring before the transition between the Julian and Gregorian calendars, i.e.: date <= 1582-10-04.
 
@@ -901,6 +912,14 @@ The GPU implementation of `approximate_percentile` uses
 distribution. The results are not bit-for-bit identical with the Apache Spark implementation of
 `approximate_percentile`. This feature is enabled by default and can be disabled by setting
 `spark.rapids.sql.expression.ApproximatePercentile=false`.
+
+## Exact Percentile
+
+On Spark 5.0 and later, exact `percentile` aggregation over `FLOAT` or `DOUBLE` input falls back
+to CPU. Spark 5.0 changed its interpolation formula, and the GPU implementation does not yet match
+the resulting `NaN` and infinity semantics. Exact `percentile` over integral input remains GPU
+accelerated. Native GPU support for the Spark 5.0 interpolation behavior is tracked by
+[issue-15516](https://github.com/NVIDIA/cudf-spark/issues/15516).
 
 ## Conditionals and operations with side effects (ANSI mode)
 
