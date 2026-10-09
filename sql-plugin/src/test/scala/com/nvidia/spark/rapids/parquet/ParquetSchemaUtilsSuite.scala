@@ -18,7 +18,10 @@ package com.nvidia.spark.rapids.parquet
 
 import scala.collection.JavaConverters._
 
-import org.apache.parquet.schema.MessageTypeParser
+import com.nvidia.spark.rapids.shims.parquet.ParquetUnknownTypeAnnotationShims
+import org.apache.parquet.schema.{LogicalTypeAnnotation, MessageTypeParser, Types}
+import org.apache.parquet.schema.PrimitiveType.PrimitiveTypeName
+import org.apache.parquet.schema.Type.Repetition
 import org.scalatest.funsuite.AnyFunSuite
 
 import org.apache.spark.sql.types.{StringType, StructType}
@@ -100,6 +103,60 @@ class ParquetSchemaUtilsSuite extends AnyFunSuite {
       returnNullStructIfAllFieldsMissing = false)
 
     assertResult(Seq("name.cheap_value"))(paths(clipped))
+  }
+
+  test("nested missing structs leave no physical group on legacy reads") {
+    val nestedFileSchema = MessageTypeParser.parseMessageType(
+      """message root {
+        |  optional group name {
+        |    optional group nested {
+        |      optional binary first (STRING);
+        |    }
+        |  }
+        |  optional binary address (STRING);
+        |}
+        |""".stripMargin)
+    val requested = new StructType()
+        .add("name", new StructType()
+          .add("nested", new StructType().add("middle", StringType)))
+        .add("address", StringType)
+    val clipped = ParquetSchemaUtils.clipParquetSchema(
+      nestedFileSchema, requested, caseSensitive = true, useFieldId = false,
+      returnNullStructIfAllFieldsMissing = true)
+
+    assertResult(Seq("address"))(paths(clipped))
+  }
+
+  test("missing struct carrier normalizes UNKNOWN annotation and selects its zero cost") {
+    val unknownTypeFactory = classOf[LogicalTypeAnnotation].getMethods.find { method =>
+      method.getName == "unknownType" && method.getParameterCount == 0
+    }
+    assume(unknownTypeFactory.nonEmpty, "Parquet UNKNOWN annotation requires Parquet 1.16+")
+    val unknownAnnotation = unknownTypeFactory.get.invoke(null)
+        .asInstanceOf[LogicalTypeAnnotation]
+    val unknownFileSchema = Types.buildMessage()
+        .addField(Types.buildGroup(Repetition.OPTIONAL)
+          .addField(Types.primitive(PrimitiveTypeName.BOOLEAN, Repetition.OPTIONAL)
+            .named("known_value"))
+          .addField(Types.primitive(PrimitiveTypeName.BINARY, Repetition.OPTIONAL)
+            .as(unknownAnnotation)
+            .named("unknown_value"))
+          .named("name"))
+        .named("root")
+    val clipped = ParquetSchemaUtils.clipParquetSchema(
+      unknownFileSchema,
+      new StructType().add("name", new StructType().add("middle", StringType)),
+      caseSensitive = true,
+      useFieldId = false,
+      returnNullStructIfAllFieldsMissing = false)
+
+    assertResult(Seq("name.unknown_value"))(paths(clipped))
+    val originalAnnotation = unknownFileSchema.asGroupType().getType("name").asGroupType()
+        .getType("unknown_value").asPrimitiveType().getLogicalTypeAnnotation
+    val carrierAnnotation = clipped.asGroupType().getType("name").asGroupType()
+        .getType("unknown_value").asPrimitiveType().getLogicalTypeAnnotation
+    assertResult(ParquetUnknownTypeAnnotationShims.effectiveLogicalTypeAnnotation(
+      originalAnnotation))(carrierAnnotation)
   }
 
   test("missing struct carrier preserves map key and value paths") {

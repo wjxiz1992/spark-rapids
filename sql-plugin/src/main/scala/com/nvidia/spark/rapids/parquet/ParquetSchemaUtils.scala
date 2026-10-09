@@ -417,7 +417,7 @@ object ParquetSchemaUtils {
       // Omit that leafless physical group and let schema evolution synthesize the null struct.
       // Restrict this to StructType: list/map containers need their physical shape preserved.
       if (returnNullStructIfAllFieldsMissing && sparkField.dataType.isInstanceOf[StructType] &&
-          !hasPrimitiveLeaf(clipped)) {
+          clipped.asGroupType().getFieldCount == 0) {
         None
       } else {
         Some(clipped)
@@ -477,11 +477,6 @@ object ParquetSchemaUtils {
     }
   }
 
-  private def hasPrimitiveLeaf(parquetType: Type): Boolean = {
-    parquetType.isPrimitive ||
-      parquetType.asGroupType().getFields.asScala.exists(hasPrimitiveLeaf)
-  }
-
   /**
    * Retain the cheapest physical leaf path while preserving valid Parquet container shapes.
    * Maps must retain both key and value, and Variant values must retain both physical children.
@@ -528,13 +523,17 @@ object ParquetSchemaUtils {
 
       case primitiveType: PrimitiveType =>
         val cost = primitiveType.getPrimitiveTypeName match {
+          case _ if Option(primitiveType.getLogicalTypeAnnotation).exists(
+              _.getClass.getName.endsWith("UnknownLogicalTypeAnnotation")) => 0
           case PrimitiveTypeName.BOOLEAN => 1
           case PrimitiveTypeName.INT32 | PrimitiveTypeName.FLOAT => 4
           case PrimitiveTypeName.INT64 | PrimitiveTypeName.DOUBLE => 8
           case PrimitiveTypeName.INT96 => 12
           case _ => 32
         }
-        (primitiveType, repLevel, cost)
+        // A carrier has no requested Catalyst leaf type. Use the same UNKNOWN handling as
+        // physical Parquet reads, including Spark 4.1.2's respect-annotation setting.
+        (stripIgnoredUnknownAnnotation(primitiveType, NullType), repLevel, cost)
     }
 
     recurse(parentGroupType)._1.asGroupType().getType(0)

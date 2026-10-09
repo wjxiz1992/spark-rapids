@@ -18,8 +18,9 @@ import pytest
 from asserts import assert_gpu_and_cpu_are_equal_collect, run_with_cpu_and_gpu, assert_equal
 from data_gen import *
 from marks import *
+from pyspark.sql import Row
 from pyspark.sql.types import IntegerType
-from spark_session import with_cpu_session, is_before_spark_320
+from spark_session import with_cpu_session, is_before_spark_320, is_spark_411_or_later
 from conftest import spark_jvm
 
 # Several values to avoid generating too many folders for partitions.
@@ -187,6 +188,35 @@ def test_select_complex_field(format, spark_tmp_path, query, expected_schemata, 
         return do_it
     conf={"spark.sql.parquet.enableVectorizedReader": "true"}
     create_contacts_table_and_read(is_partitioned, format, data_path, expected_schemata, read_temp_view, conf, table_name)
+
+
+@pytest.mark.skipif(not is_spark_411_or_later(),
+                    reason="Spark 4.1.1+ exposes missing-struct parent validity")
+@pytest.mark.parametrize('return_null_struct', [False, True])
+@ignore_order(local=True)
+def test_parquet_missing_nested_field_parent_null(spark_tmp_path, return_null_struct):
+    data_path = spark_tmp_path + "/MISSING_NESTED_PARENT"
+    source_rows = [
+        Row(name=None, address="null parent"),
+        Row(name=Row(first="Ada", last="Lovelace"), address="present parent")]
+    with_cpu_session(lambda spark: spark.createDataFrame(
+        source_rows, "name struct<first:string,last:string>, address string")
+        .write.parquet(data_path))
+
+    conf = {
+        "spark.sql.legacy.parquet.returnNullStructIfAllFieldsMissing":
+            str(return_null_struct).lower(),
+        "spark.sql.parquet.enableVectorizedReader": "true"}
+
+    def read_parent(spark):
+        return spark.read.schema("name struct<middle:string>, address string") \
+            .parquet(data_path).select("name")
+
+    from_cpu, from_gpu = run_with_cpu_and_gpu(read_parent, 'COLLECT', conf=conf)
+    assert_equal(from_cpu, from_gpu)
+    assert len(from_cpu) == 2
+    if not return_null_struct:
+        assert sorted(row.name is None for row in from_cpu) == [False, True]
 
 # https://github.com/NVIDIA/spark-rapids/issues/8715
 @pytest.mark.parametrize('query, expected_schemata', [("friend.First", "struct<friends:array<struct<first:string>>>"),
