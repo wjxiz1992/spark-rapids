@@ -53,7 +53,7 @@ object ParquetSchemaUtils {
       returnNullStructIfAllFieldsMissing: Boolean = true): MessageType = {
     val clippedParquetFields = clipParquetGroupFields(
       parquetSchema.asGroupType(), catalystSchema, caseSensitive, useFieldId,
-      returnNullStructIfAllFieldsMissing)
+      returnNullStructIfAllFieldsMissing, () => ())
     if (clippedParquetFields.isEmpty) {
       EMPTY_MESSAGE
     } else {
@@ -69,15 +69,17 @@ object ParquetSchemaUtils {
       catalystType: DataType,
       caseSensitive: Boolean,
       useFieldId: Boolean,
-      returnNullStructIfAllFieldsMissing: Boolean): Type = {
+      returnNullStructIfAllFieldsMissing: Boolean,
+      onPhysicalLeaf: () => Unit): Type = {
     val newParquetType = catalystType match {
       case t if GpuColumnVector.isVariantType(t) =>
+        onPhysicalLeaf()
         normalizeVariantFieldOrder(parquetType)
 
       case t: ArrayType if !isPrimitiveCatalystType(t.elementType) =>
         // Only clips array types with nested type as element type.
         clipParquetListType(parquetType.asGroupType(), t.elementType, caseSensitive, useFieldId,
-          returnNullStructIfAllFieldsMissing)
+          returnNullStructIfAllFieldsMissing, onPhysicalLeaf)
 
       case t: MapType
         if !isPrimitiveCatalystType(t.keyType) ||
@@ -85,16 +87,17 @@ object ParquetSchemaUtils {
         // Only clips map types with nested key type or value type
         clipParquetMapType(
           parquetType.asGroupType(), t.keyType, t.valueType, caseSensitive, useFieldId,
-          returnNullStructIfAllFieldsMissing)
+          returnNullStructIfAllFieldsMissing, onPhysicalLeaf)
 
       case t: StructType =>
         clipParquetGroup(parquetType.asGroupType(), t, caseSensitive, useFieldId,
-          returnNullStructIfAllFieldsMissing)
+          returnNullStructIfAllFieldsMissing, onPhysicalLeaf)
 
       case _ =>
         // UDTs, primitive types, and primitive-element arrays/maps are not clipped
         // structurally. Still normalize UNKNOWN annotations so cuDF sees the physical
         // type when Spark would ignore the annotation (SPARK-56045).
+        onPhysicalLeaf()
         stripIgnoredUnknownAnnotation(parquetType, catalystType)
     }
 
@@ -231,7 +234,8 @@ object ParquetSchemaUtils {
       elementType: DataType,
       caseSensitive: Boolean,
       useFieldId: Boolean,
-      returnNullStructIfAllFieldsMissing: Boolean): Type = {
+      returnNullStructIfAllFieldsMissing: Boolean,
+      onPhysicalLeaf: () => Unit): Type = {
     // Precondition of this method, should only be called for lists with nested element types.
     assert(!isPrimitiveCatalystType(elementType))
 
@@ -242,7 +246,7 @@ object ParquetSchemaUtils {
     if (parquetList.getOriginalType == null &&
         parquetList.isRepetition(Repetition.REPEATED)) {
       clipParquetType(parquetList, elementType, caseSensitive, useFieldId,
-        returnNullStructIfAllFieldsMissing)
+        returnNullStructIfAllFieldsMissing, onPhysicalLeaf)
     } else {
       assert(
         // TODO: When we drop Spark 3.1.x, this should use Parquet's LogicalTypeAnnotation
@@ -279,14 +283,14 @@ object ParquetSchemaUtils {
             //.as(LogicalTypeAnnotation.listType())
             .as(OriginalType.LIST)
             .addField(clipParquetType(repeatedGroup, elementType, caseSensitive, useFieldId,
-              returnNullStructIfAllFieldsMissing))
+              returnNullStructIfAllFieldsMissing, onPhysicalLeaf))
             .named(parquetList.getName)
       } else {
         val newRepeatedGroup = Types
             .repeatedGroup()
             .addField(
               clipParquetType(repeatedGroup.getType(0), elementType, caseSensitive, useFieldId,
-                returnNullStructIfAllFieldsMissing))
+                returnNullStructIfAllFieldsMissing, onPhysicalLeaf))
             .named(repeatedGroup.getName)
 
         val newElementType = if (useFieldId && repeatedGroup.getId != null) {
@@ -320,7 +324,8 @@ object ParquetSchemaUtils {
       valueType: DataType,
       caseSensitive: Boolean,
       useFieldId: Boolean,
-      returnNullStructIfAllFieldsMissing: Boolean): GroupType = {
+      returnNullStructIfAllFieldsMissing: Boolean,
+      onPhysicalLeaf: () => Unit): GroupType = {
     // Precondition of this method, only handles maps with nested key types or value types.
     assert(!isPrimitiveCatalystType(keyType) || !isPrimitiveCatalystType(valueType))
 
@@ -335,9 +340,9 @@ object ParquetSchemaUtils {
           //.as(repeatedGroup.getLogicalTypeAnnotation)
           .as(repeatedGroup.getOriginalType)
           .addField(clipParquetType(parquetKeyType, keyType, caseSensitive, useFieldId,
-            returnNullStructIfAllFieldsMissing))
+            returnNullStructIfAllFieldsMissing, onPhysicalLeaf))
           .addField(clipParquetType(parquetValueType, valueType, caseSensitive, useFieldId,
-            returnNullStructIfAllFieldsMissing))
+            returnNullStructIfAllFieldsMissing, onPhysicalLeaf))
           .named(repeatedGroup.getName)
       if (useFieldId && repeatedGroup.getId != null) {
         newRepeatedGroup.withId(repeatedGroup.getId.intValue())
@@ -369,16 +374,18 @@ object ParquetSchemaUtils {
       structType: StructType,
       caseSensitive: Boolean,
       useFieldId: Boolean,
-      returnNullStructIfAllFieldsMissing: Boolean): GroupType = {
+      returnNullStructIfAllFieldsMissing: Boolean,
+      onPhysicalLeaf: () => Unit): GroupType = {
     val clippedParquetFields =
       clipParquetGroupFields(parquetRecord, structType, caseSensitive, useFieldId,
-        returnNullStructIfAllFieldsMissing)
+        returnNullStructIfAllFieldsMissing, onPhysicalLeaf)
     val physicalParquetFields =
       if (clippedParquetFields.isEmpty && !returnNullStructIfAllFieldsMissing &&
           parquetRecord.getFieldCount > 0) {
         // Spark 4.1+ preserves the validity of a struct whose requested children are all
         // missing. Retain one physical path so schema evolution can add the missing children
         // without losing the parent validity.
+        onPhysicalLeaf()
         Seq(findCheapestGroupField(parquetRecord))
       } else {
         clippedParquetFields
@@ -402,7 +409,8 @@ object ParquetSchemaUtils {
       structType: StructType,
       caseSensitive: Boolean,
       useFieldId: Boolean,
-      returnNullStructIfAllFieldsMissing: Boolean): Seq[Type] = {
+      returnNullStructIfAllFieldsMissing: Boolean,
+      onPhysicalLeaf: () => Unit): Seq[Type] = {
     lazy val caseSensitiveParquetFieldMap =
       parquetRecord.getFields.asScala.map(f => f.getName -> f).toMap
     lazy val caseInsensitiveParquetFieldMap =
@@ -411,15 +419,19 @@ object ParquetSchemaUtils {
       parquetRecord.getFields.asScala.filter(_.getId != null).groupBy(f => f.getId.intValue())
 
     def clipMatchedField(parquetType: Type, sparkField: StructField): Option[Type] = {
+      var hasPhysicalLeaf = false
       val clipped = clipParquetType(parquetType, sparkField.dataType, caseSensitive, useFieldId,
-        returnNullStructIfAllFieldsMissing)
+        returnNullStructIfAllFieldsMissing, () => hasPhysicalLeaf = true)
       // Before Spark 4.1, a struct whose requested children are all missing is itself null.
       // Omit that leafless physical group and let schema evolution synthesize the null struct.
       // Restrict this to StructType: list/map containers need their physical shape preserved.
       if (returnNullStructIfAllFieldsMissing && sparkField.dataType.isInstanceOf[StructType] &&
-          clipped.asGroupType().getFieldCount == 0) {
+          !hasPhysicalLeaf) {
         None
       } else {
+        if (hasPhysicalLeaf) {
+          onPhysicalLeaf()
+        }
         Some(clipped)
       }
     }

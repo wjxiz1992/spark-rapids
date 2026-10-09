@@ -56,6 +56,34 @@ class ParquetSchemaUtilsSuite extends AnyFunSuite {
     assert(!clipped.containsField("name"))
   }
 
+  test("legacy missing list element drops a leafless parent but keeps physical siblings") {
+    val nestedList = MessageTypeParser.parseMessageType(
+      """message root {
+        |  optional group name {
+        |    optional group arr (LIST) {
+        |      repeated group list {
+        |        optional group element {
+        |          optional binary first (STRING);
+        |        }
+        |      }
+        |    }
+        |  }
+        |  optional binary address (STRING);
+        |}
+        |""".stripMargin)
+    val requested = new StructType()
+        .add("name", new StructType()
+          .add("arr", org.apache.spark.sql.types.ArrayType(
+            new StructType().add("middle", StringType))))
+        .add("address", StringType)
+    val clipped = ParquetSchemaUtils.clipParquetSchema(
+      nestedList, requested, caseSensitive = true, useFieldId = false,
+      returnNullStructIfAllFieldsMissing = true)
+
+    assertResult(Seq("address"))(paths(clipped))
+    assert(!clipped.containsField("name"))
+  }
+
   test("missing struct retains a carrier leaf when parent validity is required") {
     val clipped = ParquetSchemaUtils.clipParquetSchema(
       fileSchema,
