@@ -1,5 +1,5 @@
 {
-  "mode": "producer",
+  "mode": "consumer",
   "producer_repo": "wjxiz1992/spark-rapids",
-  "producer_head": null
+  "producer_head": "34300d1ae0d0f6051bb74965f52c3d11c00926a2"
 }
