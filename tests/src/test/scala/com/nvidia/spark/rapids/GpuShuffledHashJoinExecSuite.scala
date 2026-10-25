@@ -20,7 +20,7 @@ import java.io.{ByteArrayInputStream, ByteArrayOutputStream, DataInputStream}
 
 import ai.rapids.cudf.{ColumnVector, HostMemoryBuffer, JCudfSerialization, Rmm, Table}
 import com.nvidia.spark.rapids.Arm._
-import com.nvidia.spark.rapids.jni.GpuRetryOOM
+import com.nvidia.spark.rapids.jni.{GpuRetryOOM, RmmSpark}
 import org.mockito.ArgumentMatchers._
 import org.mockito.Mockito._
 import org.scalatest.funsuite.AnyFunSuite
@@ -124,9 +124,67 @@ class GpuShuffledHashJoinExecSuite extends AnyFunSuite with MockitoSugar {
               assert(!iter.hasNext)
               verify(tracker, times(2)).getColumnarBatch()
               verify(tracker, times(1)).close()
+              verify(built, times(1)).checkpoint()
+              verify(built, times(1)).restore()
+              verify(built, times(1)).allowSpilling()
             }
           }
         }
+      }
+    }
+
+    test(s"final outer join batch retries null column allocation for $buildSide") {
+      TestUtils.withGpuSparkSession(new SparkConf()) { _ =>
+        val baseline = Rmm.getTotalBytesAllocated
+        val taskId = 1L
+        RmmSpark.currentThreadIsDedicatedToTask(taskId)
+        RmmSpark.getAndResetNumRetryThrow(taskId)
+        try {
+          withResource(newOneIntColumnTable()) { table =>
+            withResource(GpuColumnVector.from(table, Array[DataType](IntegerType))) { builtBatch =>
+              val built = mock[LazySpillableColumnarBatch]
+              when(built.dataTypes).thenReturn(Array[DataType](IntegerType))
+              when(built.getBatch).thenReturn(builtBatch)
+              // Iterator cleanup follows filtering, so the next allocation belongs to the
+              // second retry block rather than the tracker/filter retry block.
+              doAnswer { _ =>
+                RmmSpark.forceRetryOOM(RmmSpark.getCurrentThreadId, 1,
+                  RmmSpark.OomInjectionType.GPU.ordinal, 0)
+                null
+              }.when(built).close()
+              val tracker = withResource(
+                  ColumnVector.fromBooleans(true, false, true, false, true)) { mask =>
+                SpillableColumnarBatch(
+                  new ColumnarBatch(
+                    Array(GpuColumnVector.from(mask.incRefCount(), BooleanType)), 5),
+                  SpillPriorities.ACTIVE_ON_DECK_PRIORITY)
+              }
+              val joinOptions = new RapidsConf(new SparkConf()).getJoinOptions(TARGET_SIZE_BIG)
+              withResource(new HashOuterJoinIterator(
+                  FullOuter, built, Seq.empty, None, Some(tracker), Iterator.empty,
+                  Seq.empty, attrs, None, joinOptions, buildSide,
+                  false, None, NoopMetric, NoopMetric)) { iter =>
+                assert(iter.hasNext)
+                withResource(iter.next()) { batch =>
+                  assert(batch.numRows() == 3)
+                  val buildOrdinal = if (buildSide == GpuBuildLeft) 0 else 1
+                  withResource(batch.column(buildOrdinal).asInstanceOf[GpuColumnVector]
+                      .getBase.copyToHost()) { values =>
+                    assert((0 until 3).map(i => values.getInt(i)) == Seq(1, 3, 5))
+                  }
+                  assert(batch.column(1 - buildOrdinal).numNulls() == 3)
+                }
+                assert(!iter.hasNext)
+                assert(RmmSpark.getAndResetNumRetryThrow(taskId) == 1)
+                verify(built, times(1)).close()
+              }
+            }
+          }
+        } finally {
+          RmmSpark.forceRetryOOM(RmmSpark.getCurrentThreadId, 0)
+          RmmSpark.removeAllCurrentThreadAssociation()
+        }
+        assert(Rmm.getTotalBytesAllocated == baseline)
       }
     }
   }

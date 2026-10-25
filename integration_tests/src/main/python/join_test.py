@@ -1661,7 +1661,7 @@ def test_distinct_join(join_type, batch_size):
 @pytest.mark.parametrize(
     "build_side", ["left", "right"], ids=["BUILD_LEFT", "BUILD_RIGHT"])
 @pytest.mark.parametrize(
-    "unmatched_build_rows", [False, True], ids=["MATCHED", "UNMATCHED"])
+    "unmatched_build_rows", [False, True], ids=["ALL_KEYS_MATCH", "SOME_KEYS_UNMATCHED"])
 def test_distinct_full_outer_join(build_side, unmatched_build_rows, use_condition):
     join_conf = {
         # The residual addition must use GPU AST; ANSI overflow checks are unsupported there.
