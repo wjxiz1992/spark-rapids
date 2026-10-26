@@ -18,6 +18,8 @@ package com.nvidia.spark.rapids
 
 import java.io.{ByteArrayInputStream, ByteArrayOutputStream, DataInputStream}
 
+import scala.collection.JavaConverters._
+
 import ai.rapids.cudf.{ColumnVector, HostMemoryBuffer, JCudfSerialization, Rmm, Table}
 import com.nvidia.spark.rapids.Arm._
 import com.nvidia.spark.rapids.jni.{GpuRetryOOM, RmmSpark}
@@ -94,6 +96,7 @@ class GpuShuffledHashJoinExecSuite extends AnyFunSuite with MockitoSugar {
   Seq(GpuBuildLeft, GpuBuildRight).foreach { buildSide =>
     test(s"final outer join batch retries filtering for $buildSide") {
       TestUtils.withGpuSparkSession(new SparkConf()) { _ =>
+        val baseline = Rmm.getTotalBytesAllocated
         withResource(newOneIntColumnTable()) { table =>
           withResource(GpuColumnVector.from(table, Array[DataType](IntegerType))) { builtBatch =>
             val built = mock[LazySpillableColumnarBatch]
@@ -104,32 +107,41 @@ class GpuShuffledHashJoinExecSuite extends AnyFunSuite with MockitoSugar {
                 ColumnVector.fromBooleans(true, false, true, false, true)) { mask =>
               new ColumnarBatch(Array(GpuColumnVector.from(mask.incRefCount(), BooleanType)), 5)
             }
-            when(tracker.getColumnarBatch()).thenThrow(new GpuRetryOOM("final batch retry"))
-              .thenReturn(trackerBatch)
-            val joinOptions = new RapidsConf(new SparkConf()).getJoinOptions(TARGET_SIZE_BIG)
-            withResource(new HashOuterJoinIterator(
-                FullOuter, built, Seq.empty, None, Some(tracker), Iterator.empty,
-                Seq.empty, attrs, None, joinOptions, buildSide,
-                false, None, NoopMetric, NoopMetric)) { iter =>
-              assert(iter.hasNext)
-              withResource(iter.next()) { batch =>
-                assert(batch.numRows() == 3)
-                val buildOrdinal = if (buildSide == GpuBuildLeft) 0 else 1
-                withResource(batch.column(buildOrdinal).asInstanceOf[GpuColumnVector]
-                    .getBase.copyToHost()) { values =>
-                  assert((0 until 3).map(i => values.getInt(i)) == Seq(1, 3, 5))
+            try {
+              when(tracker.getColumnarBatch()).thenThrow(new GpuRetryOOM("final batch retry"))
+                .thenReturn(trackerBatch)
+              val joinOptions = new RapidsConf(new SparkConf()).getJoinOptions(TARGET_SIZE_BIG)
+              withResource(new HashOuterJoinIterator(
+                  FullOuter, built, Seq.empty, None, Some(tracker), Iterator.empty,
+                  Seq.empty, attrs, None, joinOptions, buildSide,
+                  false, None, NoopMetric, NoopMetric)) { iter =>
+                assert(iter.hasNext)
+                withResource(iter.next()) { batch =>
+                  assert(batch.numRows() == 3)
+                  val buildOrdinal = if (buildSide == GpuBuildLeft) 0 else 1
+                  withResource(batch.column(buildOrdinal).asInstanceOf[GpuColumnVector]
+                      .getBase.copyToHost()) { values =>
+                    assert((0 until 3).map(i => values.getInt(i)) == Seq(1, 3, 5))
+                  }
+                  assert(batch.column(1 - buildOrdinal).numNulls() == 3)
                 }
-                assert(batch.column(1 - buildOrdinal).numNulls() == 3)
+                assert(!iter.hasNext)
+                verify(tracker, times(2)).getColumnarBatch()
+                verify(tracker, times(1)).close()
+                verify(built, times(1)).checkpoint()
+                verify(built, times(1)).restore()
+                verify(built, times(1)).allowSpilling()
               }
-              assert(!iter.hasNext)
-              verify(tracker, times(2)).getColumnarBatch()
-              verify(tracker, times(1)).close()
-              verify(built, times(1)).checkpoint()
-              verify(built, times(1)).restore()
-              verify(built, times(1)).allowSpilling()
+            } finally {
+              val trackerCalls = mockingDetails(tracker).getInvocations.asScala
+                .count(_.getMethod.getName == "getColumnarBatch")
+              if (trackerCalls < 2) {
+                trackerBatch.close()
+              }
             }
           }
         }
+        assert(Rmm.getTotalBytesAllocated == baseline)
       }
     }
 
