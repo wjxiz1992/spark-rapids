@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024-2025, NVIDIA CORPORATION.
+ * Copyright (c) 2024-2026, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -98,8 +98,17 @@ class GpuUnboundedToUnboundedAggWindowSuite extends RmmSparkRetrySuiteBase {
     var numRowsActuallyOutput = 0L
     while (repeatIter.hasNext) {
       withResource(repeatIter.next()) { result =>
-        numRowsActuallyOutput += result.numRows()
         assert(result.numCols() == 2)
+        val rowsPerGroup = math.ceil(numOutputRows.toDouble / aggGroups).toLong
+        withResource(result.column(0).asInstanceOf[GpuColumnVector].copyToHost()) { aggs =>
+          withResource(result.column(1).asInstanceOf[GpuColumnVector].copyToHost()) { rideAlong =>
+            (0 until result.numRows()).foreach { row =>
+              assert(aggs.getInt(row) == ((numRowsActuallyOutput + row) / rowsPerGroup).toInt)
+              assert(rideAlong.getShort(row) == 5.toShort)
+            }
+          }
+        }
+        numRowsActuallyOutput += result.numRows()
       }
     }
     assert(numRowsActuallyOutput == numOutputRows)
