@@ -285,6 +285,9 @@ trait DatabricksDeltaProviderBase extends DeltaProviderImplBase {
       cpuExec: OverwriteByExpressionExecV1,
       meta: OverwriteByExpressionExecV1Meta): Unit = {
     if (isNativeStagedDeltaTable(cpuExec.table.getClass)) {
+      // Only the DBR 17.3 native staged-table append path has runtime validation.
+      // Keep overwrite conservative until that path is covered; DBR 18.3 overrides
+      // this tagging for its native staged-table overwrite support.
       meta.willNotWorkOnGpu(
         "Delta native staged tables are only supported by AppendDataExecV1")
     } else {
