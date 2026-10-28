@@ -166,27 +166,6 @@ class GpuRoundRobinShuffleSuite extends SparkQueryCompareTestSuite {
       }, conf(sortBefore))
     }
 
-    test(s"round-robin preserves rows on CPU and GPU, sort=$sortBefore") {
-      def rows(spark: SparkSession): Seq[Long] = {
-        spark.range(0, 1000, 1, 8)
-          .repartition(4, col("id") % 4).repartition(4)
-          .collect().map(_.longValue()).sorted.toSeq
-      }
-      val cpu = withCpuSparkSession(rows, conf(sortBefore))
-      val gpu = withGpuSparkSession({ spark =>
-        val df = spark.range(0, 1000, 1, 8)
-          .repartition(4, col("id") % 4).repartition(4)
-        assert(df.queryExecution.executedPlan.exists {
-          case exchange: GpuShuffleExchangeExecBase =>
-            exchange.outputPartitioning.isInstanceOf[RoundRobinPartitioning]
-          case _ => false
-        })
-        df.collect().map(_.longValue()).sorted.toSeq
-      }, conf(sortBefore))
-      assert(cpu === (0L until 1000L))
-      assert(gpu === cpu)
-    }
-
     test(s"round-robin fetch failure cannot reuse a completed reducer, sort=$sortBefore") {
       withGpuSparkSession({ spark =>
         val df = spark.range(0, 1000, 1, 8)

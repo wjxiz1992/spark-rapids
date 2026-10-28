@@ -15,7 +15,7 @@
 import pytest
 
 from asserts import assert_cpu_and_gpu_are_equal_collect_with_capture, assert_gpu_and_cpu_are_equal_collect, assert_gpu_and_cpu_error, assert_gpu_fallback_collect, collect_plan_nodes, plan_metric
-from spark_session import is_before_spark_320, with_cpu_session
+from spark_session import is_before_spark_320, with_cpu_session, with_gpu_session
 from conftest import is_not_utc
 from data_gen import *
 from marks import ignore_order, allow_non_gpu, shuffle_test
@@ -214,6 +214,29 @@ def test_repartition_df_for_round_robin(data_gen, num_parts, length):
         lambda spark : gen_df(spark, data_gen, length=length).withColumn('x', lit(1)).repartition(num_parts),
         # Enable sort for round robin partition
         conf = {'spark.sql.execution.sortBeforeRepartition': 'true'}) # default is true
+
+@shuffle_test
+@pytest.mark.parametrize('sort_before', [False, True])
+@pytest.mark.parametrize('aqe', [False, True])
+def test_round_robin_preserves_rows_with_small_batches(sort_before, aqe):
+    conf = {
+        'spark.sql.execution.sortBeforeRepartition': str(sort_before).lower(),
+        'spark.sql.adaptive.enabled': str(aqe).lower(),
+        'spark.sql.adaptive.coalescePartitions.enabled': 'false',
+        'spark.rapids.sql.batchSizeBytes': '1k'}
+
+    def rows(spark):
+        df = spark.range(0, 1000, 1, 8).repartition(4)
+        result = sorted(row.id for row in df.collect())
+        if spark.conf.get('spark.rapids.sql.enabled') == 'true':
+            # Check after collection so AQE has produced the final executed plan.
+            spark._jvm.org.apache.spark.sql.rapids.ExecutionPlanCaptureCallback.assertContains(
+                df._jdf, 'GpuShuffleExchangeExec')
+        return result
+
+    cpu = with_cpu_session(rows, conf=conf)
+    assert cpu == list(range(1000))
+    assert with_gpu_session(rows, conf=conf) == cpu
 
 @allow_non_gpu('ShuffleExchangeExec', 'RoundRobinPartitioning')
 @pytest.mark.parametrize('data_gen', [[('a', simple_string_to_string_map_gen)]], ids=idfn)
