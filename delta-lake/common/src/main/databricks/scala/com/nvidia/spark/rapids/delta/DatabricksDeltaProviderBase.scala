@@ -47,6 +47,7 @@ import org.apache.spark.sql.util.CaseInsensitiveStringMap
  */
 trait DatabricksDeltaProviderBase extends DeltaProviderImplBase {
   protected def isNativeStagedDeltaTable(tableClass: Class[_]): Boolean = false
+  protected def isNativeStagedDeltaWriteActive: Boolean = false
 
   override def getCreatableRelationRules: Map[Class[_ <: CreatableRelationProvider],
       CreatableRelationProviderRule[_ <: CreatableRelationProvider]] = {
@@ -232,6 +233,9 @@ trait DatabricksDeltaProviderBase extends DeltaProviderImplBase {
   override def tagForGpu(
       cpuExec: AppendDataExecV1,
       meta: AppendDataExecV1Meta): Unit = {
+    if (isNativeStagedDeltaTable(cpuExec.table.getClass) && !isNativeStagedDeltaWriteActive) {
+      meta.willNotWorkOnGpu("Native staged Delta writes require a GPU atomic CTAS/RTAS writer")
+    }
     if (!meta.conf.isDeltaWriteEnabled) {
       meta.willNotWorkOnGpu("Delta Lake output acceleration has been disabled. To enable set " +
         s"${RapidsConf.ENABLE_DELTA_WRITE} to true")

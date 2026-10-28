@@ -449,13 +449,13 @@ def test_delta_write_round_trip_managed(spark_tmp_table_factory, enable_deletion
                 .coalesce(1).write.format("delta"), enable_deletion_vectors)
             .saveAsTable(table),
         conf=conf,
-        expected_gpu_classes=(
-            ["GpuAppendDataExecV1", "GpuDataWritingCommandExec", "GpuWriteFilesExec"]
-            if native_staged_write else None),
+        expected_command=("GpuAppendDataExecV1" if native_staged_write else None),
         # DBR 17.3's staged write retains its native V1 commit writer, so validate the GPU
         # query wrapper and nested data writer instead of requiring the standard
         # RapidsDeltaWrite implementation.
-        required_gpu_classes=([] if native_staged_write else None)
+        required_gpu_classes=(
+            ["GpuDataWritingCommandExec", "GpuWriteFilesExec"]
+            if native_staged_write else None)
     )
     assert_delta_history_equal(conf, cpu_table, gpu_table)
 
@@ -650,6 +650,70 @@ def test_delta_db173_native_managed_ctas_rtas(
     assert_equal(cpu_state, gpu_state)
     assert_delta_history_equal(conf, cpu_table, gpu_table)
     with_cpu_session(check_delta_logs, conf=conf)
+
+
+@allow_non_gpu('AppendDataExecV1', 'OverwriteByExpressionExecV1',
+               'AtomicCreateTableAsSelectExec', 'AtomicReplaceTableAsSelectExec',
+               'DataWritingCommandExec', 'WriteFilesExec', *delta_meta_allow)
+@delta_lake
+@ignore_order(local=True)
+@pytest.mark.skipif(not is_databricks173_or_later(), reason="DBR 17.3 native write path")
+@pytest.mark.parametrize("write_api", ["sql_ctas", "sql_rtas", "save_as_table_overwrite"])
+def test_delta_db173_native_staged_write_cpu_atomic_fallback(
+        spark_tmp_table_factory, write_api):
+    conf = copy_and_update(writer_confs, delta_writes_enabled_conf, {
+        "spark.databricks.delta.optimizeWrite.enabled": "false",
+        "spark.sql.adaptive.enabled": "true",
+        "spark.rapids.sql.exec.AtomicCreateTableAsSelectExec": "false",
+        "spark.rapids.sql.exec.AtomicReplaceTableAsSelectExec": "false",
+    })
+    cpu_table = spark_tmp_table_factory.get() + '_cpu'
+    gpu_table = spark_tmp_table_factory.get() + '_gpu'
+    if write_api != "sql_ctas":
+        def setup_tables(spark):
+            for table in (cpu_table, gpu_table):
+                spark.sql(f"CREATE TABLE {table} USING DELTA AS SELECT -1L AS id").collect()
+
+        with_cpu_session(setup_tables, conf=conf)
+
+    def write_table(spark, table):
+        query = "SELECT id, IF(id % 3 = 0, NULL, id + 1) AS value FROM range(64)"
+        if write_api == "save_as_table_overwrite":
+            spark.sql(query).write.format("delta").mode("overwrite") \
+                .option("overwriteSchema", "true").saveAsTable(table)
+        else:
+            command = "CREATE TABLE" if write_api == "sql_ctas" else "CREATE OR REPLACE TABLE"
+            spark.sql(f"{command} {table} USING DELTA AS {query}").collect()
+
+    with_cpu_session(lambda spark: write_table(spark, cpu_table), conf=conf)
+    callback = spark_jvm().org.apache.spark.sql.rapids.ExecutionPlanCaptureCallback
+    callback.startCapture()
+    try:
+        with_gpu_session(lambda spark: write_table(spark, gpu_table), conf=conf)
+        plans = callback.getResultsWithTimeout(10000)
+        expected_atomic = ("AtomicCreateTableAsSelectExec" if write_api == "sql_ctas"
+                           else "AtomicReplaceTableAsSelectExec")
+        for cls in (expected_atomic, "DataWritingCommandExec"):
+            assert any(callback.didFallBack(plan, cls) for plan in plans), \
+                f"CPU {cls} is missing from captured fallback plans"
+        assert any(callback.didFallBack(plan, cls) for plan in plans
+                   for cls in ("AppendDataExecV1", "OverwriteByExpressionExecV1")), \
+            "Native staged V1 write did not fall back with its CPU atomic parent"
+        for cls in ("GpuAppendDataExecV1", "GpuOverwriteByExpressionExecV1",
+                    "GpuDataWritingCommandExec", "GpuWriteFilesExec"):
+            assert not any(callback.contains(plan, cls) for plan in plans), \
+                f"CPU atomic write unexpectedly contains {cls}"
+    finally:
+        callback.endCapture()
+
+    def table_state(spark, table):
+        df = spark.table(table)
+        return df.orderBy("id").collect(), df.schema.json()
+
+    cpu_state = with_cpu_session(lambda spark: table_state(spark, cpu_table), conf=conf)
+    gpu_state = with_cpu_session(lambda spark: table_state(spark, gpu_table), conf=conf)
+    assert_equal(cpu_state, gpu_state)
+    assert_delta_history_equal(conf, cpu_table, gpu_table)
 
 
 @allow_non_gpu('AppendDataExecV1', 'AtomicCreateTableAsSelectExec',

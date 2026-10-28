@@ -132,21 +132,21 @@ abstract class GpuCreateDeltaTableCommandBase(
         }
         val queryPlan = query.get
         validateQueryPlan(queryPlan)
+        val v1Writer = isV1Writer
         // We are either appending/overwriting with saveAsTable, creating a new table with CTAS,
         // or creating a table as part of a RunnableCommand.
         queryPlan match {
           case writer: WriteIntoDeltaLike =>
             // In the V2 Writer, methods like "replace" and "createOrReplace" implicitly mean that
             // the metadata should be changed. This wasn't the behavior for DataFrameWriterV1.
-            val isV1WriterSaveAsTableOverwrite = isV1Writer
-            if (!isV1WriterSaveAsTableOverwrite) {
+            if (!v1Writer) {
               replaceMetadataIfNecessary(
                 txn, tableWithLocation, options, writer.data.schema.asNullable)
             }
             val isTableReplace =
               (operation == TableCreationModes.Replace ||
                 operation == TableCreationModes.CreateOrReplace) &&
-                !isV1WriterSaveAsTableOverwrite
+                !v1Writer
             val actions = writer.write(txn, sparkSession, None, isTableReplace)
             val op = getOperation(txn.metadata, isManagedTable, Some(options))
               txn.commit(actions, op)
@@ -160,7 +160,7 @@ abstract class GpuCreateDeltaTableCommandBase(
 
             // In the V2 Writer, methods like "replace" and "createOrReplace" implicitly mean that
             // the metadata should be changed. This wasn't the behavior for DataFrameWriterV1.
-            if (!isV1Writer) {
+            if (!v1Writer) {
               replaceMetadataIfNecessary(
                 txn, tableWithLocation, options, other.schema.asNullable)
             }
