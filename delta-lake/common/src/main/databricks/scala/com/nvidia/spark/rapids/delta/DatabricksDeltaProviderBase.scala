@@ -240,8 +240,8 @@ trait DatabricksDeltaProviderBase extends DeltaProviderImplBase {
       meta.willNotWorkOnGpu("Delta Lake output acceleration has been disabled. To enable set " +
         s"${RapidsConf.ENABLE_DELTA_WRITE} to true")
     }
-    // DBR 17.3's atomic CTAS/RTAS wrappers intentionally retain the native catalog and staged
-    // table. Its V1 write only captures the query for the staged-table commit, so there is no
+    // DBR 17.3 and 18.3 atomic CTAS/RTAS wrappers retain the native catalog and staged table.
+    // Their V1 writes only capture the query for the staged-table commit, so there is no
     // DeltaTableV2 write builder to inspect here.
     if (!isNativeStagedDeltaTable(cpuExec.table.getClass)) {
       cpuExec.write match {
