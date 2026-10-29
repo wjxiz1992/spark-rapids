@@ -42,17 +42,32 @@ in the future to allow for a spillable stable sort.
 
 ## Round-robin Shuffle Recovery
 
-GPU round-robin repartitioning with more than one output partition can assign rows to different
-partitions when batch boundaries change between attempts, including after an out-of-memory split.
-If Spark needs to rerun the shuffle's map stage, for example after losing shuffle output, the job
-fails explicitly to prevent missing or duplicated rows from mixing results of different attempts.
-Spark may report an indeterminate-stage recovery error. If the map stage is resubmitted, the plugin
-reports `Cannot retry a GPU round-robin shuffle with indeterminate output`. This also applies when
-`spark.sql.execution.sortBeforeRepartition` is enabled.
+A GPU round-robin exchange with more than one output partition, as used by `repartition(n)` and by
+Delta Lake optimized writes to unpartitioned tables, assigns rows by their position in a GPU batch.
+A rerun can cut batches differently, so Spark treats the exchange and stages that read it as
+indeterminate. This also affects a hash exchange downstream of the round-robin exchange.
 
-Recreate and rerun the query from a fresh execution after this error. Splitting and retrying a batch
-within the original map attempt is still supported. Hash, range, and single-partition exchanges
-retain their existing recovery behavior. See [#16458](https://github.com/NVIDIA/cudf-spark/issues/16458).
+The map stage can retry a failure in its own input before any reader stage has been submitted.
+Once a reader task binary has been serialized, rerunning that shuffle dependency could mix rows
+from different attempts. This remains true after an individual job ends: `take` and
+`toLocalIterator` can retain partial results across jobs, including results from cached intermediate
+output. The dependency therefore keeps its reader history until it is discarded. Even a later,
+independent action fails if it must recompute that dependency after its output is lost. Intact
+shuffle output can still be reused. The query fails rather than return missing or duplicated rows,
+including
+when a result from the old attempt arrives late. The error contains one of these messages:
+
+- `Cannot retry a GPU round-robin shuffle`, from the plugin.
+- `A shuffle map stage with indeterminate output was failed and retried`, from Spark.
+- `Task with indeterminate results from old attempt succeeded`, from Spark 4.2.
+
+Recreate the query from a fresh execution before rerunning it. Checkpointing before the repartition
+does not avoid the failure, and neither does
+`spark.sql.execution.sortBeforeRepartition`. To avoid GPU round-robin recovery restrictions, set
+[`spark.rapids.sql.partitioning.RoundRobinPartitioning`](additional-functionality/advanced_configs.md#sql.partitioning.RoundRobinPartitioning)
+to `false` to run the exchange on the CPU. A query that calls `repartition(n)` can instead
+repartition by columns with `repartition(n, cols)`. Splitting and retrying a batch within the
+original map attempt remains supported.
 
 ## Floating Point
 
