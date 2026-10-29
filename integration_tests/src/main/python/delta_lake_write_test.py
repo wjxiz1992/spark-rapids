@@ -463,8 +463,9 @@ def test_delta_write_round_trip_managed(spark_tmp_table_factory, enable_deletion
 @allow_non_gpu(*delta_meta_allow)
 @delta_lake
 @ignore_order(local=True)
-@pytest.mark.skipif(not is_databricks143(), reason="DBR 14.3 V2 Delta create-table path")
-def test_delta_db143_managed_replace(spark_tmp_table_factory):
+@pytest.mark.skipif(not is_databricks143(), reason="DBR 14.3 Delta create-table path")
+@pytest.mark.parametrize("write_api", ["sql_rtas", "save_as_table_overwrite"])
+def test_delta_db143_managed_replace(spark_tmp_table_factory, write_api):
     conf = copy_and_update(writer_confs, delta_writes_enabled_conf, {
         "spark.sql.sources.partitionOverwriteMode": "dynamic"
     })
@@ -478,10 +479,15 @@ def test_delta_db143_managed_replace(spark_tmp_table_factory):
                 "SELECT id, CAST(id % 2 AS INT) AS part, 'initial' AS value FROM range(4)")
 
     def replace(spark, table):
-        spark.sql(
-            f"CREATE OR REPLACE TABLE {table} USING DELTA PARTITIONED BY (part) AS "
+        query = (
             "SELECT id, CAST(id % 2 AS INT) AS part, 'replaced' AS value "
             "FROM range(2, 6) WHERE id % 2 = 0")
+        if write_api == "save_as_table_overwrite":
+            spark.sql(query).write.format("delta").mode("overwrite") \
+                .partitionBy("part").saveAsTable(table)
+        else:
+            spark.sql(
+                f"CREATE OR REPLACE TABLE {table} USING DELTA PARTITIONED BY (part) AS {query}")
 
     with_cpu_session(create_initial_tables, conf=conf)
     with_cpu_session(lambda spark: replace(spark, cpu_table), conf=conf)
@@ -497,6 +503,8 @@ def test_delta_db143_managed_replace(spark_tmp_table_factory):
 
     cpu_state = with_cpu_session(lambda spark: table_state(spark, cpu_table), conf=conf)
     gpu_state = with_cpu_session(lambda spark: table_state(spark, gpu_table), conf=conf)
+    if write_api == "save_as_table_overwrite":
+        assert [row.id for row in cpu_state[0] if row.part == 1] == [1, 3]
     assert_equal(cpu_state, gpu_state)
     assert_delta_history_equal(conf, cpu_table, gpu_table)
 
