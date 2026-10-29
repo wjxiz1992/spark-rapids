@@ -704,9 +704,12 @@ def test_delta_db173_native_staged_write_cpu_atomic_fallback(
         for cls in (expected_atomic, "DataWritingCommandExec"):
             assert any(callback.didFallBack(plan, cls) for plan in plans), \
                 f"CPU {cls} is missing from captured fallback plans"
-        assert any(callback.didFallBack(plan, cls) for plan in plans
-                   for cls in ("AppendDataExecV1", "OverwriteByExpressionExecV1")), \
-            "Native staged V1 write did not fall back with its CPU atomic parent"
+        expected_v1 = (
+            "OverwriteByExpressionExecV1"
+            if is_databricks_version_or_later(18, 3) and write_api != "sql_ctas"
+            else "AppendDataExecV1")
+        assert any(callback.didFallBack(plan, expected_v1) for plan in plans), \
+            f"CPU {expected_v1} is missing from captured fallback plans"
         for cls in ("GpuAppendDataExecV1", "GpuOverwriteByExpressionExecV1",
                     "GpuDataWritingCommandExec", "GpuWriteFilesExec"):
             assert not any(callback.contains(plan, cls) for plan in plans), \
