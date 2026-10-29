@@ -18,17 +18,22 @@ package com.nvidia.spark.rapids.window
 
 import scala.collection.mutable.ArrayBuffer
 
-import ai.rapids.cudf.{ColumnVector, Scalar, Table}
+import ai.rapids.cudf.{ColumnVector, Table}
 import com.nvidia.spark.rapids.{GpuColumnVector, NoopMetric, RmmSparkRetrySuiteBase, SpillableColumnarBatch, SpillPriorities}
-import com.nvidia.spark.rapids.Arm.withResource
+import com.nvidia.spark.rapids.Arm.{closeOnExcept, withResource}
+import com.nvidia.spark.rapids.jni.RmmSpark
 import java.util
+import org.mockito.Mockito._
+import org.scalatestplus.mockito.MockitoSugar
 
 import org.apache.spark.sql.catalyst.expressions.AttributeReference
 import org.apache.spark.sql.types.{DataType, IntegerType, LongType, ShortType}
+import org.apache.spark.sql.vectorized.ColumnarBatch
 
-class GpuUnboundedToUnboundedAggWindowSuite extends RmmSparkRetrySuiteBase {
+class GpuUnboundedToUnboundedAggWindowSuite extends RmmSparkRetrySuiteBase with MockitoSugar {
   def basicRepeatTest(numOutputRows: Long, rowsPerRideAlongBatch: Int,
-      aggGroups: Int, targetSizeBytes: Int) : Unit = {
+      aggGroups: Int, targetSizeBytes: Int,
+      retrySplit: Boolean = false, retryRepeat: Boolean = false) : Unit = {
     // First I need to setup the operations. I am trying to test repeat in isolation
     // so we are not going to build them up using the front door
     val aggOutput = Seq(AttributeReference("my_max", IntegerType, nullable = true)(),
@@ -68,12 +73,10 @@ class GpuUnboundedToUnboundedAggWindowSuite extends RmmSparkRetrySuiteBase {
       }
     }
 
-    def makeRideAlongCb(numRows: Int): SpillableColumnarBatch = {
-      // very basic test to verify that the repeat stage works properly.
-      val table = withResource(Scalar.fromShort(5.toShort)) { s =>
-        withResource(ColumnVector.fromScalar(s, numRows)) { data1 =>
-          new Table(data1)
-        }
+    def makeRideAlongCb(startRow: Long, numRows: Int): SpillableColumnarBatch = {
+      val values = (0 until numRows).map(row => (startRow + row).toShort)
+      val table = withResource(ColumnVector.fromShorts(values: _*)) { data =>
+        new Table(data)
       }
       withResource(table) { _ =>
         SpillableColumnarBatch(
@@ -86,10 +89,35 @@ class GpuUnboundedToUnboundedAggWindowSuite extends RmmSparkRetrySuiteBase {
     var rowsRemaining = numOutputRows
     while (rowsRemaining > 0) {
       val rowsToAdd = math.min(rowsRemaining, rowsPerRideAlongBatch)
+      val startRow = numOutputRows - rowsRemaining
       rowsRemaining -= rowsToAdd
-      rideAlongList.add(makeRideAlongCb(rowsToAdd.toInt))
+      rideAlongList.add(makeRideAlongCb(startRow, rowsToAdd.toInt))
     }
-    val inputIter = Seq(SecondPassAggResult(rideAlongList, makeRepeatCb())).toIterator
+    val injectRetry = retrySplit || retryRepeat
+    val aggResult = if (injectRetry) spy(makeRepeatCb()) else makeRepeatCb()
+    if (injectRetry) {
+      var injected = false
+      doAnswer { invocation =>
+        val cb = invocation.callRealMethod().asInstanceOf[ColumnarBatch]
+        closeOnExcept(cb) { _ =>
+          if (!injected) {
+            // Arm after materializing the aggregate input so earlier ride-along
+            // splits, concatenations, or unspills cannot consume the injected OOM.
+            val stack = Thread.currentThread().getStackTrace
+            val inSplit = stack.exists(_.getMethodName == "splitAggResultByRepeatedRows")
+            assert(inSplit == retrySplit)
+            assert(stack.exists(_.getClassName ==
+              classOf[GpuUnboundedToUnboundedAggFinalIterator].getName))
+            assert(RmmSpark.getAndResetNumRetryThrow(1) == 0)
+            injected = true
+            RmmSpark.forceRetryOOM(RmmSpark.getCurrentThreadId, 1,
+              RmmSpark.OomInjectionType.GPU.ordinal, 0)
+          }
+          cb
+        }
+      }.when(aggResult).getColumnarBatch()
+    }
+    val inputIter = Seq(SecondPassAggResult(rideAlongList, aggResult)).toIterator
     val splitIter = new GpuUnboundedToUnboundedAggSliceBySizeIterator(inputIter, conf,
       targetSizeBytes, NoopMetric)
     val repeatIter = new GpuUnboundedToUnboundedAggFinalIterator(splitIter, conf,
@@ -104,7 +132,7 @@ class GpuUnboundedToUnboundedAggWindowSuite extends RmmSparkRetrySuiteBase {
           withResource(result.column(1).asInstanceOf[GpuColumnVector].copyToHost()) { rideAlong =>
             (0 until result.numRows()).foreach { row =>
               assert(aggs.getInt(row) == ((numRowsActuallyOutput + row) / rowsPerGroup).toInt)
-              assert(rideAlong.getShort(row) == 5.toShort)
+              assert(rideAlong.getShort(row) == (numRowsActuallyOutput + row).toShort)
             }
           }
         }
@@ -112,6 +140,10 @@ class GpuUnboundedToUnboundedAggWindowSuite extends RmmSparkRetrySuiteBase {
       }
     }
     assert(numRowsActuallyOutput == numOutputRows)
+    if (injectRetry) {
+      assert(RmmSpark.getAndResetNumRetryThrow(1) == 1)
+      verify(aggResult, times(2)).getColumnarBatch()
+    }
   }
 
   test("single batch repeat test") {
@@ -124,6 +156,14 @@ class GpuUnboundedToUnboundedAggWindowSuite extends RmmSparkRetrySuiteBase {
 
   test("single batch with split repeat test") {
     basicRepeatTest(1000, 1000, 2, 4 * 1024)
+  }
+
+  test("aggregate split handles GpuRetryOOM") {
+    basicRepeatTest(1000, 1000, 2, 4 * 1024, retrySplit = true)
+  }
+
+  test("repeat handles GpuRetryOOM") {
+    basicRepeatTest(1000, 1000, 2, 1024 * 1024 * 1024, retryRepeat = true)
   }
 
   test("multi batch with split repeat test") {
