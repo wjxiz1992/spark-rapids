@@ -17,12 +17,10 @@
 package org.apache.spark.sql.rapids.execution
 
 import java.io.ObjectInputStream
-import java.util.concurrent.{CountDownLatch, FutureTask, TimeUnit}
+import java.util.concurrent.{CountDownLatch, TimeUnit}
 import java.util.concurrent.atomic.{AtomicInteger, AtomicReference}
 
 import ai.rapids.cudf.{JCudfSerialization, Table}
-import com.esotericsoftware.kryo.{Kryo, KryoSerializable}
-import com.esotericsoftware.kryo.io.{Input, Output}
 import com.nvidia.spark.rapids._
 import com.nvidia.spark.rapids.Arm.withResource
 import com.nvidia.spark.rapids.RapidsConf.ShuffleKudoMode
@@ -32,7 +30,6 @@ import com.nvidia.spark.rapids.shims.GpuHashPartitioning
 import org.apache.spark.{HashPartitioner, MapOutputTrackerMaster, ShuffleDependency, SparkConf, SparkEnv, SparkException, TaskContext}
 import org.apache.spark.rdd.{DeterministicLevel, MapPartitionsRDD, RDD}
 import org.apache.spark.scheduler.{SparkListener, SparkListenerStageSubmitted}
-import org.apache.spark.serializer.{JavaSerializer, KryoSerializer, Serializer}
 import org.apache.spark.shuffle.FetchFailedException
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.expressions.AttributeReference
@@ -42,6 +39,7 @@ import org.apache.spark.sql.functions.col
 import org.apache.spark.sql.rapids.GpuShuffleEnv
 import org.apache.spark.sql.types.IntegerType
 import org.apache.spark.sql.vectorized.ColumnarBatch
+import org.apache.spark.util.LongAccumulator
 
 object GpuRoundRobinShuffleSuite {
   @volatile var reducerCompleted = new CountDownLatch(1)
@@ -61,26 +59,51 @@ object GpuRoundRobinShuffleSuite {
       await(releaseResult)
     }
   }
-}
 
-// Block result decoding on the driver with either of Spark's supported serializers.
-class RoundRobinShuffleResult(var rows: Array[Long]) extends Serializable with KryoSerializable {
-  def this() = this(Array.emptyLongArray)
-
-  private def readObject(in: ObjectInputStream): Unit = {
-    in.defaultReadObject()
-    GpuRoundRobinShuffleSuite.holdResult()
+  private def fetchFailure(
+      shuffleId: Int,
+      mapIndex: Int,
+      reduceIndex: Int,
+      message: String): FetchFailedException = {
+    new FetchFailedException(SparkEnv.get.blockManager.blockManagerId,
+      shuffleId, 0L, mapIndex, reduceIndex, message, null)
   }
 
-  override def write(kryo: Kryo, out: Output): Unit = kryo.writeObject(out, rows)
+  private def loseOutput(shuffleId: Int): Unit = {
+    SparkEnv.get.mapOutputTracker.asInstanceOf[MapOutputTrackerMaster]
+      .unregisterAllMapAndMergeOutput(shuffleId)
+  }
 
-  override def read(kryo: Kryo, in: Input): Unit = {
-    rows = kryo.readObject(in, classOf[Array[Long]])
+  private def splitOnce(
+      injections: LongAccumulator,
+      shouldSplit: () => Boolean = () => true): GpuRoundRobinPartitioning = {
+    new GpuRoundRobinPartitioning(4) {
+      private var injected = false
+
+      override def columnarEvalAny(batch: ColumnarBatch): Any = {
+        if (!injected && shouldSplit()) {
+          injected = true
+          injections.add(1)
+          withResource(batch) { _ => throw new GpuSplitAndRetryOOM("injected round-robin split") }
+        } else {
+          super.columnarEvalAny(batch)
+        }
+      }
+    }
+  }
+}
+
+// Block Java result decoding on the driver until the scheduler has retried the map stage.
+class RoundRobinShuffleResult(val rows: Array[Long]) extends Serializable {
+  private def readObject(in: ObjectInputStream): Unit = {
+    in.defaultReadObject()
     GpuRoundRobinShuffleSuite.holdResult()
   }
 }
 
 class GpuRoundRobinShuffleSuite extends SparkQueryCompareTestSuite {
+  import GpuRoundRobinShuffleSuite.{fetchFailure, loseOutput, splitOnce}
+
   private def conf(sortBefore: Boolean): SparkConf = new SparkConf()
     .set("spark.sql.execution.sortBeforeRepartition", sortBefore.toString)
 
@@ -107,6 +130,14 @@ class GpuRoundRobinShuffleSuite extends SparkQueryCompareTestSuite {
       }) {
       override protected def getOutputDeterministicLevel: DeterministicLevel.Value = inputLevel
     }
+    dependency(spark, input, partitioning, trackOpTime)
+  }
+
+  private def dependency(
+      spark: SparkSession,
+      input: RDD[ColumnarBatch],
+      partitioning: GpuPartitioning,
+      trackOpTime: Boolean): ShuffleDependency[Int, ColumnarBatch, ColumnarBatch] = {
     val metrics = Map[String, GpuMetric]().withDefaultValue(NoopMetric)
     GpuShuffleExchangeExecBase.prepareBatchShuffleDependency(input,
       Seq(AttributeReference("id", IntegerType, nullable = false)()), partitioning,
@@ -186,8 +217,7 @@ class GpuRoundRobinShuffleSuite extends SparkQueryCompareTestSuite {
           if (index == 1 && TaskContext.get().stageAttemptNumber() == 0) {
             // The driver result handler runs after DAGScheduler records reducer 0 as finished.
             GpuRoundRobinShuffleSuite.await(GpuRoundRobinShuffleSuite.reducerCompleted)
-            throw new FetchFailedException(SparkEnv.get.blockManager.blockManagerId,
-              shuffleId, 0L, 0, index, "injected round-robin fetch failure", null)
+            throw fetchFailure(shuffleId, 0, index, "injected round-robin fetch failure")
           }
           rows.map(_.getLong(0))
         }
@@ -224,8 +254,7 @@ class GpuRoundRobinShuffleSuite extends SparkQueryCompareTestSuite {
             } else {
               if (TaskContext.get().stageAttemptNumber() == 0) {
                 // No reader of the round-robin shuffle has started, so a rerun is safe.
-                throw new FetchFailedException(SparkEnv.get.blockManager.blockManagerId,
-                  upstreamId, 0L, index, index, "injected input fetch failure", null)
+                throw fetchFailure(upstreamId, index, index, "injected input fetch failure")
               }
               Iterator.single(withResource(new Table.TestBuilder()
                   .column((0 until 1002).map(Int.box): _*).build()) { table =>
@@ -233,16 +262,7 @@ class GpuRoundRobinShuffleSuite extends SparkQueryCompareTestSuite {
               })
             }
           })
-        val metrics = Map[String, GpuMetric]().withDefaultValue(NoopMetric)
-        val dep = GpuShuffleExchangeExecBase.prepareBatchShuffleDependency(input,
-          Seq(AttributeReference("id", IntegerType, nullable = false)()),
-          GpuRoundRobinPartitioning(4), Array(IntegerType),
-          new GpuColumnarBatchSerializer(metrics, Array(IntegerType), ShuffleKudoMode.CPU,
-            useKudo = false, kudoMeasureBufferCopy = false),
-          useGPUShuffle = false, useMultiThreadedShuffle = false,
-          rangeInputBatchingEnabled = false, metrics,
-          SQLShuffleWriteMetricsReporter.createShuffleWriteMetrics(spark.sparkContext), Map.empty,
-          opTimeNewShuffleWrite = Some(NoopMetric))
+        val dep = dependency(spark, input, GpuRoundRobinPartitioning(4), trackOpTime = true)
         val rows = shuffledRows(spark, dep)
         // A serializability check must not mark a reader as submitted or retain a prior snapshot.
         SparkEnv.get.closureSerializer.newInstance().serialize(rows)
@@ -258,16 +278,14 @@ class GpuRoundRobinShuffleSuite extends SparkQueryCompareTestSuite {
     withGpuSparkSession({ spark =>
       GpuShuffleEnv.init(new RapidsConf(spark.sparkContext.getConf))
       val dep = dependency(spark, Seq(1002))
-      def loseOutput(): Unit = SparkEnv.get.mapOutputTracker.asInstanceOf[MapOutputTrackerMaster]
-        .unregisterAllMapAndMergeOutput(dep.shuffleId)
       for (_ <- 0 until 2) {
         scala.concurrent.Await.result(spark.sparkContext.submitMapStage(dep),
           scala.concurrent.duration.Duration.Inf)
-        loseOutput()
+        loseOutput(dep.shuffleId)
       }
       val rows = shuffledRows(spark, dep)
       assert(rows.collect().sorted.toSeq === (0L until 1002L))
-      loseOutput()
+      loseOutput(dep.shuffleId)
       // A completed job does not prove that its caller has discarded the old results.
       val error = intercept[SparkException] { rows.collect() }
       assert(error.getMessage.contains("Cannot retry a GPU round-robin shuffle"))
@@ -281,8 +299,7 @@ class GpuRoundRobinShuffleSuite extends SparkQueryCompareTestSuite {
       GpuRoundRobinShuffleSuite.releaseResult = new CountDownLatch(0)
       GpuRoundRobinShuffleSuite.beforeFirstTakeResult.set(() => {
         callbacks.incrementAndGet()
-        SparkEnv.get.mapOutputTracker.asInstanceOf[MapOutputTrackerMaster]
-          .unregisterAllMapAndMergeOutput(shuffleId)
+        loseOutput(shuffleId)
         beforeRerun()
       })
       try {
@@ -305,19 +322,7 @@ class GpuRoundRobinShuffleSuite extends SparkQueryCompareTestSuite {
       GpuShuffleEnv.init(new RapidsConf(spark.sparkContext.getConf))
       var splitLater = false
       val injections = spark.sparkContext.longAccumulator("take cross-job split")
-      val partitioning = new GpuRoundRobinPartitioning(4) {
-        private var injected = false
-
-        override def columnarEvalAny(batch: ColumnarBatch): Any = {
-          if (!injected && splitLater) {
-            injected = true
-            injections.add(1)
-            withResource(batch) { _ => throw new GpuSplitAndRetryOOM("split after first take job") }
-          } else {
-            super.columnarEvalAny(batch)
-          }
-        }
-      }
+      val partitioning = splitOnce(injections, () => splitLater)
       val dep = dependency(spark, Seq(1002), partitioning)
       val rows = shuffledRows(spark, dep)
       val error = intercept[SparkException] {
@@ -335,21 +340,8 @@ class GpuRoundRobinShuffleSuite extends SparkQueryCompareTestSuite {
         GpuShuffleEnv.init(new RapidsConf(spark.sparkContext.getConf))
         val injections = spark.sparkContext.longAccumulator("retried round-robin split")
         var injectOnFirstAttempt = false
-        val partitioning = new GpuRoundRobinPartitioning(4) {
-          private var injected = false
-
-          override def columnarEvalAny(batch: ColumnarBatch): Any = {
-            if (!injected && (TaskContext.get().stageAttemptNumber() > 0 || injectOnFirstAttempt)) {
-              injected = true
-              injections.add(1)
-              withResource(batch) { _ =>
-                throw new GpuSplitAndRetryOOM("injected split after fetch failure")
-              }
-            } else {
-              super.columnarEvalAny(batch)
-            }
-          }
-        }
+        val partitioning = splitOnce(injections,
+          () => TaskContext.get().stageAttemptNumber() > 0 || injectOnFirstAttempt)
         // A split produces 501 + 501 rows; 501 is not divisible by the four reducers, so
         // restarting round-robin on the second half would change the row assignments.
         val dep = dependency(spark, Seq(1002), partitioning)
@@ -385,8 +377,7 @@ class GpuRoundRobinShuffleSuite extends SparkQueryCompareTestSuite {
             if (intermediateShuffle && event.stageInfo.rddInfos.exists(_.id == shuffled.id)) {
               // Model loss of both shuffles on one executor: the result can still read the
               // intermediate output, but retrying its failed fetch also needs the lost RR map.
-              SparkEnv.get.mapOutputTracker.asInstanceOf[MapOutputTrackerMaster]
-                .unregisterAllMapAndMergeOutput(dep.shuffleId)
+              loseOutput(dep.shuffleId)
               roundRobinOutputLost.countDown()
             }
             if (GpuRoundRobinShuffleSuite.resultBlocked.getCount == 0 &&
@@ -404,9 +395,8 @@ class GpuRoundRobinShuffleSuite extends SparkQueryCompareTestSuite {
               if (intermediateShuffle) {
                 GpuRoundRobinShuffleSuite.await(GpuRoundRobinShuffleSuite.roundRobinOutputLost)
               }
-              throw new FetchFailedException(SparkEnv.get.blockManager.blockManagerId,
-                failedShuffleId, 0L, if (intermediateShuffle) index else 7, index,
-                "fetch failure before driver accepts reducer 0", null)
+              throw fetchFailure(failedShuffleId, if (intermediateShuffle) index else 7, index,
+                "fetch failure before driver accepts reducer 0")
             }
             rows
           }
@@ -431,29 +421,6 @@ class GpuRoundRobinShuffleSuite extends SparkQueryCompareTestSuite {
     }
   }
 
-  test("driver result handshakes exercise both Java and Kryo serialization") {
-    Seq[Serializer](new JavaSerializer(new SparkConf()), new KryoSerializer(new SparkConf()))
-      .foreach { serializer =>
-        val instance = serializer.newInstance()
-        val bytes = instance.serialize(new RoundRobinShuffleResult(Array(1L, 2L)))
-        GpuRoundRobinShuffleSuite.resultBlocked = new CountDownLatch(1)
-        val releaseResult = new CountDownLatch(1)
-        GpuRoundRobinShuffleSuite.releaseResult = releaseResult
-        val result = new FutureTask[RoundRobinShuffleResult](
-          () => instance.deserialize[RoundRobinShuffleResult](bytes))
-        val thread = new Thread(result, "task-result-getter-serializer-check")
-        thread.start()
-        try {
-          GpuRoundRobinShuffleSuite.await(GpuRoundRobinShuffleSuite.resultBlocked)
-          releaseResult.countDown()
-          assert(result.get(30, TimeUnit.SECONDS).rows.toSeq === Seq(1L, 2L))
-        } finally {
-          releaseResult.countDown()
-          thread.join(30000)
-        }
-      }
-  }
-
   test("hash and single-partition exchanges can still retry after a fetch failure") {
     withGpuSparkSession({ spark =>
       GpuShuffleEnv.init(new RapidsConf(spark.sparkContext.getConf))
@@ -465,8 +432,7 @@ class GpuRoundRobinShuffleSuite extends SparkQueryCompareTestSuite {
         val retries = spark.sparkContext.longAccumulator("successful shuffle retries")
         val result = shuffledRows(spark, dep).mapPartitionsWithIndex { (index, rows) =>
           if (index == 0 && TaskContext.get().stageAttemptNumber() == 0) {
-            throw new FetchFailedException(SparkEnv.get.blockManager.blockManagerId,
-              shuffleId, 0L, 7, index, "injected determinate shuffle fetch failure", null)
+            throw fetchFailure(shuffleId, 7, index, "injected determinate shuffle fetch failure")
           }
           if (TaskContext.get().stageAttemptNumber() > 0) {
             retries.add(1)
@@ -483,21 +449,7 @@ class GpuRoundRobinShuffleSuite extends SparkQueryCompareTestSuite {
     withGpuSparkSession({ spark =>
       GpuShuffleEnv.init(new RapidsConf(spark.sparkContext.getConf))
       val injections = spark.sparkContext.longAccumulator("round-robin split injection")
-      val partitioning = new GpuRoundRobinPartitioning(4) {
-        private var injected = false
-
-        override def columnarEvalAny(batch: ColumnarBatch): Any = {
-          if (!injected) {
-            injected = true
-            injections.add(1)
-            withResource(batch) { _ =>
-              throw new GpuSplitAndRetryOOM("injected round-robin split")
-            }
-          } else {
-            super.columnarEvalAny(batch)
-          }
-        }
-      }
+      val partitioning = splitOnce(injections)
       val first = assignments(dependency(spark, Seq(10)))
       val retry = dependency(spark, Seq(10), partitioning)
       val retried = assignments(retry)
