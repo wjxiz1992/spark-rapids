@@ -18,20 +18,21 @@ and the reason the intervening changes preserve coverage. Accept
 `Local-Tests: not-required` with a brief, diff-supported reason when no new
 runtime tests apply, such as prose-only documentation or comment changes with
 no behavior change. Check applicable documentation/static validation; do not
-demand a runtime rerun or maintainer approval solely for those changes. Judge
+demand a runtime rerun solely for those changes. Judge
 actual impact, not file extensions. This declaration covers only those changes
-and cannot waive validation of earlier untested code. For `Local-Tests: not-run`,
-inspect the environment exception below. Do not require
+and cannot waive validation of earlier untested code. `Local-Tests: not-run`
+does not satisfy required validation. Do not require
 rewriting published history; a new tested tip can declare the covered range.
 These are commit-specific author declarations, not independent proof that tests
 executed. Never infer follow-up validation solely from an unchanged checkbox.
 
-Recognize the maintainer-approved environment exception in
-`CONTRIBUTING.md#testing-your-code`. Check the feasible checks, documented blocker,
-remaining validation, and explicit maintainer approval before publication or
-targeted CI. Assess the actual CI results for the remaining scope as they become
-available, keeping them distinct from local evidence. Approval alone does not
-validate untested behavior or waive known product-test failures.
+Accept developer-managed validation run locally or on EMR, Dataproc, Databricks,
+or another suitable remote environment matching the affected behavior, as
+described in `CONTRIBUTING.md#testing-your-code`. Do not require every platform
+for every change. Environment unavailability and maintainer approval do not
+waive required tests. Missing required results are a validation blocker before
+publication or premerge, rather than evidence of a test failure. Assess CI
+results separately; they do not replace required developer-test evidence.
 
 If the required declaration is missing, contradicted by observed results, or no
 longer covers the changed behavior, cap the confidence score at **3/5** and

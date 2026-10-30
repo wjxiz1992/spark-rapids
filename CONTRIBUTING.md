@@ -553,10 +553,14 @@ By making a contribution to this project, I certify that:
 
 ### Testing Your Code
 Before publishing code changes, including follow-up pushes, or requesting Blossom premerge,
-run and pass the tests affected by the change in a developer test environment, unless the
-maintainer-approved environment exception below applies. This applies to human-authored and
-AI-assisted changes alike. Full premerge is shared infrastructure for broad validation after
-focused testing; it must not be the first test run for a small change.
+run and pass the tests affected by the change in a developer test environment. This applies
+to human-authored and AI-assisted changes alike. Full premerge is shared infrastructure for
+broad validation after focused testing; it must not be the first test run for a small change.
+
+For this policy, local testing includes developer-managed validation run locally or on EMR,
+Dataproc, Databricks, or another suitable remote environment. Select the environment matching
+the affected runtime and behavior; each change does not require every platform. Test the
+submitted artifacts and configurations in the applicable environment before requesting premerge.
 
 - Identify the affected behavior, callers, and test coverage from the diff. Run the full affected
   unit-test suites, not just the newly added test. Also run the related integration tests,
@@ -580,19 +584,17 @@ focused testing; it must not be the first test run for a small change.
   For justified reuse, use `Local-Tests: reused <tested-commit-sha>` and explain why the later
   changes do not affect the validated behavior. When no new runtime tests apply, use
   `Local-Tests: not-required` with a brief reason, such as a prose-only documentation change.
-  This needs no maintainer approval and covers only those changes, not earlier untested code;
-  applicable documentation/static checks still apply. For the maintainer-approved environment
-  exception below, use `Local-Tests: not-run` with an approval reference and the remaining
-  validation. These declarations link the author's confirmation to commits; they do not
+  This covers only those changes, not earlier untested code; applicable documentation/static
+  checks still apply. `Local-Tests: not-run` does not satisfy required validation. These
+  declarations link the author's confirmation to commits; they do not
   independently prove test execution. Do not rewrite published commits just to add them;
   a new tested tip can declare the range it covers.
 - Re-run affected validation after code changes and update the confirmation before pushing or
-  requesting another build. If the required environment is unavailable, run the checks that
-  are feasible and document the blocker and remaining validation. As an exception to the
-  local-testing requirement, obtain explicit maintainer approval before publishing code
-  (including drafts or follow-up pushes) or requesting targeted CI validation. This exception
-  does not waive known product-test failures. A developer-managed remote GPU environment is
-  acceptable; report CI results as CI validation, not local test evidence.
+  requesting another build. If a required environment is unavailable, provision or configure
+  it, or obtain access to a suitable developer-managed environment. Document any remaining
+  blocker and stop before publishing code (including drafts or follow-up pushes) or requesting
+  premerge until required tests pass. Environment unavailability and maintainer approval do
+  not waive required tests. Report CI results as CI validation, not developer-test evidence.
 
 See the [unit-test guide](tests/README.md) and
 [integration-test guide](integration_tests/README.md) for commands and environment setup.
@@ -654,10 +656,9 @@ Here are some guidelines to follow when creating a pull request:
 2. Label your PR. Labels are what make the queue filterable. Changes that touch only tests get the
    `test` label so reviewers know no production logic changed.
 
-3. Complete [affected local testing](#testing-your-code), or obtain the explicit maintainer
-   approval required by its environment exception, before opening a pull request or requesting
-   targeted CI, including for drafts. If your pull request is not ready for review but needs
-   broader CI validation or early feedback, please make it a draft and prefix the title with
+3. Complete [affected developer testing](#testing-your-code) before opening a pull request or
+   requesting premerge, including for drafts. If your pull request is not ready for review but
+   needs broader CI validation or early feedback, please make it a draft and prefix the title with
    `[WIP]`. Please do not use other title prefixes that mean the same thing as `[WIP]` such as
    `[DO NOT REVIEW]` and `[DRAFT]`.
 
@@ -715,9 +716,8 @@ cudf-spark PRs for the GitHub account submitting the request. Each account may h
   jobs have finished or cancellation is confirmed. Separately submitted requests each occupy
   a slot, even when they target the same PR.
 - With zero, one, or two outstanding requests, submit at most one new request after confirming
-  the PR's current head satisfies the local-testing requirement or its maintainer-approved
-  environment exception. That exception does not waive the three-request limit. With three or
-  more, wait for a slot and re-check before submitting. List the active PRs when capacity is full.
+  the PR's current head satisfies the developer-testing requirement. With three or more,
+  wait for a slot and re-check before submitting. List the active PRs when capacity is full.
 - Do not post a duplicate `build` while the PR already has an outstanding request. For an
   obsolete run, wait for completion or confirmed cancellation before requesting a replacement.
 - Agents sharing an account must coordinate the capacity check and submission one at a time,

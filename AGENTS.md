@@ -17,12 +17,14 @@ This document provides context for AI coding agents (Claude Code, GitHub Copilot
   [Testing Your Code](CONTRIBUTING.md#testing-your-code). Build the submitted code, pass the full
   affected unit-test suites and related integration tests, and confirm initial validation using the
   PR's local-testing checkbox. Pasting full commands and logs is not required. Re-run affected
-  validation after code changes, including follow-up pushes. If a test layer is inapplicable, explain why;
-  if the required environment is unavailable, run feasible checks, document the blocker and
-  remaining validation, and obtain explicit maintainer approval before publishing code
-  (including drafts or follow-up pushes) or requesting targeted CI validation. This exception
-  does not waive known product-test failures. Report CI results as CI validation, not local
-  test evidence. Draft status alone does not waive the local-testing requirement.
+  validation after code changes, including follow-up pushes. Developer-managed validation may run
+  locally or on EMR, Dataproc, Databricks, or another suitable remote environment. Choose the
+  environment matching the affected behavior; every change need not run on every platform.
+  If a test layer is inapplicable, explain why. If a required environment is unavailable,
+  provision it or obtain access; report the blocker and stop before publishing code (including
+  drafts or follow-up pushes) or requesting premerge until required tests pass. Environment
+  unavailability and maintainer approval do not waive required tests. Report CI results as CI
+  validation, not developer-test evidence. Draft status does not waive the testing requirement.
 - **Declare follow-up validation in commit messages** — A checked PR checkbox does not
   confirm later commits. Cover each follow-up change with a declaration in its commit message
   or a later tested tip's message that explicitly identifies the covered commits or range.
@@ -30,11 +32,11 @@ This document provides context for AI coding agents (Claude Code, GitHub Copilot
   `Local-Tests: reused <tested-commit-sha>` and explain why the changes preserve that coverage.
   When no new runtime tests apply, use `Local-Tests: not-required` with a brief reason, such
   as prose-only documentation or comment changes that do not affect behavior. Run applicable
-  documentation/static checks; no maintainer approval is needed for inapplicable tests.
+  documentation/static checks.
   Judge the actual impact, not the file extension. This declaration covers only those changes
   and does not waive validation of earlier code changes.
-  For an approved environment exception, use `Local-Tests: not-run` with the approval reference
-  and remaining validation. These are author declarations, not independent proof of execution.
+  `Local-Tests: not-run` does not satisfy required validation. These are author declarations,
+  not independent proof of execution.
   Do not rewrite published commits to add declarations; a new tested tip can cover the range.
 - **Share at most three premerge slots per GitHub user** — follow the
   [per-user premerge limit](CONTRIBUTING.md#per-user-premerge-limit) before every `build` comment.
