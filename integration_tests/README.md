@@ -17,9 +17,11 @@ GPU scan assertion. Static source labels and partition columns keep each request
 associated with its payload, so swapping two object reads cannot pass by preserving the
 overall row set. Fixtures use Hadoop APIs rather than driver-local filesystem APIs,
 so the same tests work with the backend jobs' writable `--tmp_path`.
-Immutable file fixtures are shared across reader parameters within a module, limiting
-the matrix to ten small datasets. Run PerfIO cases with the file cache disabled so each
-reader must perform backend I/O.
+With the file cache disabled, immutable file fixtures are shared across reader parameters
+within a module, limiting the full file matrix to ten small datasets. When the startup
+file cache is enabled, each Parquet and ORC case gets fresh files so transport checks still
+require backend I/O; the full file matrix then writes thirty small datasets. The backend runner
+disables caching at startup to keep fixture creation small.
 
 | Reader | Hadoop FileSystem (local/HDFS/S3A/GCS connector) | PerfIO S3 Netty / CRT | PerfIO GCS HTTP |
 | --- | --- | --- | --- |

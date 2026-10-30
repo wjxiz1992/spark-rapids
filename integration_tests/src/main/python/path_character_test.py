@@ -16,7 +16,7 @@ import os
 
 import pytest
 
-from delta_lake_utils import delta_meta_allow
+from delta_lake_utils import delta_meta_allow, setup_delta_dest_table
 from marks import allow_non_gpu, delta_lake, ignore_order
 from path_test_utils import (BACKEND_METRICS, PATH_ROWS, PATH_SCHEMA, PATH_VALUES,
                              assert_path_read, path_character_data, read_path_data)
@@ -62,8 +62,10 @@ def test_path_characters(path_character_data, file_format, reader, v1, layout, r
 @pytest.mark.parametrize('reader', ['PERFILE', 'COALESCING', 'MULTITHREADED'])
 def test_delta_path_characters(spark_tmp_path, base, reader, request):
     data_path = spark_tmp_path + '/' + base
-    with_cpu_session(lambda spark: spark.createDataFrame(PATH_ROWS, PATH_SCHEMA).coalesce(1)
-                     .write.partitionBy('p').format('delta').save(data_path))
+    # Keep path coverage independent of runtime defaults for deletion vectors.
+    with_cpu_session(lambda spark: setup_delta_dest_table(
+        spark, data_path, lambda session: session.createDataFrame(PATH_ROWS, PATH_SCHEMA).coalesce(1),
+        use_cdf=False, partition_columns=['p'], enable_deletion_vectors=False))
     assert_path_read(
         lambda spark: spark.read.format('delta').load(data_path).select('id', 'token', 'p'),
         PATH_ROWS, {'spark.rapids.sql.format.parquet.reader.type': reader},

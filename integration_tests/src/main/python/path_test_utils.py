@@ -86,7 +86,8 @@ def _expected_backend(spark, files, requested):
             service = _has_class(spark, 'software.amazon.awssdk.services.s3.S3AsyncClient')
             netty = _has_class(spark, 'software.amazon.awssdk.http.nio.netty.NettyNioAsyncHttpClient')
             crt = _has_class(spark, 'software.amazon.awssdk.http.crt.AwsCrtAsyncHttpClient')
-            if not service or not (netty or crt):
+            # NETTY does not fall back to CRT when its client is unavailable.
+            if not service or not (netty or crt) or (client == 'netty' and not netty):
                 return 'hadoop'
             if client == 'crt' and not crt:
                 client = 'netty'
@@ -195,20 +196,27 @@ def read_path_data(spark, file_format, data_path, layout):
 
 @pytest.fixture(scope='module')
 def path_character_data(request):
-    # Reader/V1/V2 parameters only read these immutable datasets. Reusing them
-    # keeps cloud fixture creation to ten tiny datasets rather than 44 writes.
+    # Without file caching, share immutable datasets across reader/V1/V2 parameters
+    # to keep cloud fixture creation to ten tiny datasets rather than 44 writes.
     base = request.config.getoption('tmp_path') or '/tmp/pyspark_tests'
     root = base.rstrip('/') + '/path-characters-' + uuid.uuid4().hex
     spark = get_spark_i_know_what_i_am_doing()
+    file_cache_enabled = spark.sparkContext.getConf().get(
+        'spark.rapids.filecache.enabled', 'false').lower() == 'true'
     path = spark._jvm.org.apache.hadoop.fs.Path(root)
     fs = path.getFileSystem(spark.sparkContext._jsc.hadoopConfiguration())
     cache = {}
 
     def get_data(file_format, layout):
         key = (file_format, layout)
-        if key not in cache:
+        fresh_files = file_cache_enabled and file_format in ('parquet', 'orc')
+        if key not in cache or fresh_files:
+            data_root = root + '/' + file_format + '/' + layout
+            if fresh_files:
+                # Cached reads cannot prove transport use. Give each case new files.
+                data_root += '/' + uuid.uuid4().hex
             cache[key] = with_cpu_session(lambda spark: make_path_data(
-                spark, root + '/' + file_format + '/' + layout, file_format, layout))
+                spark, data_root, file_format, layout))
         return cache[key]
 
     yield get_data
