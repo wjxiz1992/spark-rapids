@@ -28,6 +28,11 @@ This document provides context for AI coding agents (Claude Code, GitHub Copilot
   or a later tested tip's message that explicitly identifies the covered commits or range.
   Use `Local-Tests: passed` only after applicable local tests pass. For justified reuse, use
   `Local-Tests: reused <tested-commit-sha>` and explain why the changes preserve that coverage.
+  When no new runtime tests apply, use `Local-Tests: not-required` with a brief reason, such
+  as prose-only documentation or comment changes that do not affect behavior. Run applicable
+  documentation/static checks; no maintainer approval is needed for inapplicable tests.
+  Judge the actual impact, not the file extension. This declaration covers only those changes
+  and does not waive validation of earlier code changes.
   For an approved environment exception, use `Local-Tests: not-run` with the approval reference
   and remaining validation. These are author declarations, not independent proof of execution.
   Do not rewrite published commits to add declarations; a new tested tip can cover the range.

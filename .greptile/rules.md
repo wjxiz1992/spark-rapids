@@ -14,8 +14,14 @@ a declaration on the changed commit or a later tested tip that explicitly names
 the covered commits or range. `Local-Tests: passed` declares passing applicable
 local tests; one run may cover several commits, but not later untested changes.
 For `Local-Tests: reused <tested-commit-sha>`, inspect the referenced validation
-and the reason the intervening changes preserve coverage. For
-`Local-Tests: not-run`, inspect the environment exception below. Do not require
+and the reason the intervening changes preserve coverage. Accept
+`Local-Tests: not-required` with a brief, diff-supported reason when no new
+runtime tests apply, such as prose-only documentation or comment changes with
+no behavior change. Check applicable documentation/static validation; do not
+demand a runtime rerun or maintainer approval solely for those changes. Judge
+actual impact, not file extensions. This declaration covers only those changes
+and cannot waive validation of earlier untested code. For `Local-Tests: not-run`,
+inspect the environment exception below. Do not require
 rewriting published history; a new tested tip can declare the covered range.
 These are commit-specific author declarations, not independent proof that tests
 executed. Never infer follow-up validation solely from an unchanged checkbox.
@@ -29,8 +35,9 @@ validate untested behavior or waive known product-test failures.
 
 If the required declaration is missing, contradicted by observed results, or no
 longer covers the changed behavior, cap the confidence score at **3/5** and
-explain what remains unvalidated. Do not lower confidence merely because full commands or logs
-are omitted. Missing confirmation is not a test failure. Accept justified
+explain what remains unvalidated. Do not lower confidence merely because full
+commands or logs are omitted, or a justified `not-required` declaration omits
+runtime tests. Missing confirmation is not a test failure. Accept justified
 inapplicable test layers, including runtime tests for changes confined to agent
 instructions or review configuration. Compilation,
 test collection, and all-skipped runs do not establish passing runtime tests.
