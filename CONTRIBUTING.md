@@ -553,9 +553,10 @@ By making a contribution to this project, I certify that:
 
 ### Testing Your Code
 Before publishing code changes, including follow-up pushes, or requesting Blossom premerge,
-run and pass the tests affected by the change in a developer test environment. This applies
-to human-authored and AI-assisted changes alike. Full premerge is shared infrastructure for
-broad validation after focused testing; it must not be the first test run for a small change.
+run and pass the tests affected by the change in a developer test environment, unless the
+maintainer-approved environment exception below applies. This applies to human-authored and
+AI-assisted changes alike. Full premerge is shared infrastructure for broad validation after
+focused testing; it must not be the first test run for a small change.
 
 - Identify the affected behavior, callers, and test coverage from the diff. Run the full affected
   unit-test suites, not just the newly added test. Also run the related integration tests,
@@ -572,10 +573,12 @@ broad validation after focused testing; it must not be the first test run for a 
   silently omitting it. Documentation-only changes require relevant documentation checks,
   not GPU tests.
 - Re-run affected validation after code changes and update the evidence before pushing or
-  requesting another build. If tests fail or the required environment is unavailable, report
-  the blocker and obtain a suitable developer environment; do not use premerge to replace the
-  missing local validation. A developer-managed remote GPU environment is acceptable; a shared
-  Blossom premerge run is not local test evidence.
+  requesting another build. If the required environment is unavailable, run the checks that
+  are feasible and document the blocker and remaining validation. As an exception to the
+  local-testing requirement, obtain explicit maintainer approval before publishing code
+  (including drafts or follow-up pushes) or requesting targeted CI validation. This exception
+  does not waive known product-test failures. A developer-managed remote GPU environment is
+  acceptable; report CI results as CI validation, not local test evidence.
 
 See the [unit-test guide](tests/README.md) and
 [integration-test guide](integration_tests/README.md) for commands and environment setup.
@@ -637,8 +640,9 @@ Here are some guidelines to follow when creating a pull request:
 2. Label your PR. Labels are what make the queue filterable. Changes that touch only tests get the
    `test` label so reviewers know no production logic changed.
 
-3. Complete [affected local testing](#testing-your-code) before opening a pull request or
-   requesting CI, including for drafts. If your pull request is not ready for review but needs
+3. Complete [affected local testing](#testing-your-code), or obtain the explicit maintainer
+   approval required by its environment exception, before opening a pull request or requesting
+   targeted CI, including for drafts. If your pull request is not ready for review but needs
    broader CI validation or early feedback, please make it a draft and prefix the title with
    `[WIP]`. Please do not use other title prefixes that mean the same thing as `[WIP]` such as
    `[DO NOT REVIEW]` and `[DRAFT]`.
@@ -697,8 +701,9 @@ cudf-spark PRs for the GitHub account submitting the request. Each account may h
   jobs have finished or cancellation is confirmed. Separately submitted requests each occupy
   a slot, even when they target the same PR.
 - With zero, one, or two outstanding requests, submit at most one new request after confirming
-  the PR's current head has the required local test evidence. With three or more, wait for a
-  slot and re-check before submitting. List the active PRs when reporting that capacity is full.
+  the PR's current head satisfies the local-testing requirement or its maintainer-approved
+  environment exception. That exception does not waive the three-request limit. With three or
+  more, wait for a slot and re-check before submitting. List the active PRs when capacity is full.
 - Do not post a duplicate `build` while the PR already has an outstanding request. For an
   obsolete run, wait for completion or confirmed cancellation before requesting a replacement.
 - Agents sharing an account must coordinate the capacity check and submission one at a time,

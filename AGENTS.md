@@ -18,8 +18,11 @@ This document provides context for AI coding agents (Claude Code, GitHub Copilot
   affected unit-test suites and related integration tests, and record the tested commit,
   commands, environment, scope, and results in the PR description. Re-run affected validation
   after code changes, including follow-up pushes. If a test layer is inapplicable, explain why;
-  if required testing is blocked, report the blocker and obtain a suitable developer environment
-  before publishing code or requesting premerge. Draft status does not waive this requirement.
+  if the required environment is unavailable, run feasible checks, document the blocker and
+  remaining validation, and obtain explicit maintainer approval before publishing code
+  (including drafts or follow-up pushes) or requesting targeted CI validation. This exception
+  does not waive known product-test failures. Report CI results as CI validation, not local
+  test evidence. Draft status alone does not waive the local-testing requirement.
 - **Share at most three premerge slots per GitHub user** — follow the
   [per-user premerge limit](CONTRIBUTING.md#per-user-premerge-limit) before every `build` comment.
   Check live running, queued, and just-submitted requests across all PRs for the triggering

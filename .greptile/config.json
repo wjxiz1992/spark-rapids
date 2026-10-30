@@ -15,7 +15,7 @@
   "rules": [
     {
       "id": "local-validation-evidence",
-      "rule": "On initial review and every follow-up commit, check local validation evidence against the current diff as described in .greptile/rules.md. Evidence must identify the tested revision or commit range, commands, and observed results. One run may cover several commits; allow justified reuse when later changes do not affect the validated behavior. If relevant evidence is missing or stale, cap the confidence score at 3/5 and explain what remains unvalidated. Missing evidence is not a test failure. Accept justified inapplicable test layers, and do not treat compilation, collection, or all-skipped runs as passing runtime tests.",
+      "rule": "On initial review and every follow-up commit, check validation evidence against the current diff as described in .greptile/rules.md. Evidence must identify the tested revision or commit range, commands, and observed results. Recognize maintainer-approved environment exceptions: verify feasible checks, the documented blocker and remaining validation, and explicit approval before publication or targeted CI; assess actual CI results separately from local evidence. Approval alone does not validate untested behavior or waive known product-test failures. One run may cover several commits; allow justified reuse when later changes do not affect the validated behavior. If relevant evidence is missing or stale, cap the confidence score at 3/5 and explain what remains unvalidated. Missing evidence is not a test failure. Accept justified inapplicable test layers, and do not treat compilation, collection, or all-skipped runs as passing runtime tests.",
       "scope": ["**"],
       "severity": "medium"
     },

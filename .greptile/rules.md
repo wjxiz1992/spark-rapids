@@ -6,11 +6,18 @@ shim layer architecture, see `AGENTS.md` at the repo root.
 ## Local validation evidence
 
 On initial review and every follow-up commit, inspect the PR description and
-comments for local validation evidence covering the current diff. Evidence must
+comments for validation evidence covering the current diff. Evidence must
 identify the tested revision or commit range, commands, and observed results.
 One run may cover several commits. Allow justified reuse of earlier results when
 later changes do not affect the validated behavior; assess the changes since the
 tested revision rather than requiring a separate run for every commit.
+
+Recognize the maintainer-approved environment exception in
+`CONTRIBUTING.md#testing-your-code`. Check the feasible checks, documented blocker,
+remaining validation, and explicit maintainer approval before publication or
+targeted CI. Assess the actual CI results for the remaining scope as they become
+available, keeping them distinct from local evidence. Approval alone does not
+validate untested behavior or waive known product-test failures.
 
 If relevant evidence is missing or stale, cap the confidence score at **3/5** and
 explain which changed behavior remains unvalidated. Missing evidence is not a
