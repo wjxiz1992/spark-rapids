@@ -103,11 +103,6 @@ class GpuUnboundedToUnboundedAggWindowSuite extends RmmSparkRetrySuiteBase with 
           if (!injected) {
             // Arm after materializing the aggregate input so earlier ride-along
             // splits, concatenations, or unspills cannot consume the injected OOM.
-            val stack = Thread.currentThread().getStackTrace
-            val inSplit = stack.exists(_.getMethodName == "splitAggResultByRepeatedRows")
-            assert(inSplit == retrySplit)
-            assert(stack.exists(_.getClassName ==
-              classOf[GpuUnboundedToUnboundedAggFinalIterator].getName))
             assert(RmmSpark.getAndResetNumRetryThrow(1) == 0)
             injected = true
             RmmSpark.forceRetryOOM(RmmSpark.getCurrentThreadId, 1,
@@ -124,6 +119,7 @@ class GpuUnboundedToUnboundedAggWindowSuite extends RmmSparkRetrySuiteBase with 
       NoopMetric, NoopMetric, NoopMetric)
 
     var numRowsActuallyOutput = 0L
+    var numBatchesActuallyOutput = 0
     while (repeatIter.hasNext) {
       withResource(repeatIter.next()) { result =>
         assert(result.numCols() == 2)
@@ -137,12 +133,18 @@ class GpuUnboundedToUnboundedAggWindowSuite extends RmmSparkRetrySuiteBase with 
           }
         }
         numRowsActuallyOutput += result.numRows()
+        numBatchesActuallyOutput += 1
       }
     }
     assert(numRowsActuallyOutput == numOutputRows)
     if (injectRetry) {
       assert(RmmSpark.getAndResetNumRetryThrow(1) == 1)
       verify(aggResult, times(2)).getColumnarBatch()
+      if (retrySplit) {
+        assert(numBatchesActuallyOutput > 1)
+      } else {
+        assert(numBatchesActuallyOutput == 1)
+      }
     }
   }
 
