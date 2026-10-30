@@ -30,6 +30,8 @@ Please provide a description of the changes proposed in this pull request. Here 
 #### Local validation
 
 <!--
+This confirms initial local testing; follow-up commits need Local-Tests declarations
+as described in CONTRIBUTING.md#testing-your-code.
 If the required environment is unavailable, leave this unchecked and document the
 maintainer-approved environment exception in CONTRIBUTING.md#testing-your-code.
 -->

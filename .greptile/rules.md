@@ -5,13 +5,20 @@ shim layer architecture, see `AGENTS.md` at the repo root.
 
 ## Local validation confirmation
 
-On initial review and every follow-up commit, inspect the PR description and
-comments for local-testing confirmation covering the current diff. A checked
-local-testing item or an equivalent concise statement is sufficient; do not
-require pasted commands or full logs. Consider any supplied revision, scope, or
-results when assessing whether the confirmation still applies to follow-up
-changes. One run may cover several commits. Allow justified reuse when later
-changes do not affect the validated behavior.
+For initial validation, accept the PR's checked local-testing item or an
+equivalent concise statement; do not require pasted commands or full logs.
+That checkbox does not establish validation of later commits.
+
+For follow-up changes, inspect full commit messages, including trailers. Require
+a declaration on the changed commit or a later tested tip that explicitly names
+the covered commits or range. `Local-Tests: passed` declares passing applicable
+local tests; one run may cover several commits, but not later untested changes.
+For `Local-Tests: reused <tested-commit-sha>`, inspect the referenced validation
+and the reason the intervening changes preserve coverage. For
+`Local-Tests: not-run`, inspect the environment exception below. Do not require
+rewriting published history; a new tested tip can declare the covered range.
+These are commit-specific author declarations, not independent proof that tests
+executed. Never infer follow-up validation solely from an unchanged checkbox.
 
 Recognize the maintainer-approved environment exception in
 `CONTRIBUTING.md#testing-your-code`. Check the feasible checks, documented blocker,
@@ -20,9 +27,9 @@ targeted CI. Assess the actual CI results for the remaining scope as they become
 available, keeping them distinct from local evidence. Approval alone does not
 validate untested behavior or waive known product-test failures.
 
-If the confirmation is missing, contradicted by observed results, or no longer
-covers the changed behavior, cap the confidence score at **3/5** and explain what
-remains unvalidated. Do not lower confidence merely because full commands or logs
+If the required declaration is missing, contradicted by observed results, or no
+longer covers the changed behavior, cap the confidence score at **3/5** and
+explain what remains unvalidated. Do not lower confidence merely because full commands or logs
 are omitted. Missing confirmation is not a test failure. Accept justified
 inapplicable test layers, including runtime tests for changes confined to agent
 instructions or review configuration. Compilation,

@@ -15,7 +15,7 @@ This document provides context for AI coding agents (Claude Code, GitHub Copilot
 - **Pace the review queue** — do not open a batch of independent pull requests at once; open the next only as earlier ones land or receive review, and convert drafts to ready in small batches for the same reason. Stacked pull requests are exempt, but identify the dependency with `Stacked on #NNNN`
 - **Test locally before publishing or requesting CI** — follow
   [Testing Your Code](CONTRIBUTING.md#testing-your-code). Build the submitted code, pass the full
-  affected unit-test suites and related integration tests, and confirm completion using the
+  affected unit-test suites and related integration tests, and confirm initial validation using the
   PR's local-testing checkbox. Pasting full commands and logs is not required. Re-run affected
   validation after code changes, including follow-up pushes. If a test layer is inapplicable, explain why;
   if the required environment is unavailable, run feasible checks, document the blocker and
@@ -23,6 +23,14 @@ This document provides context for AI coding agents (Claude Code, GitHub Copilot
   (including drafts or follow-up pushes) or requesting targeted CI validation. This exception
   does not waive known product-test failures. Report CI results as CI validation, not local
   test evidence. Draft status alone does not waive the local-testing requirement.
+- **Declare follow-up validation in commit messages** — A checked PR checkbox does not
+  confirm later commits. Cover each follow-up change with a declaration in its commit message
+  or a later tested tip's message that explicitly identifies the covered commits or range.
+  Use `Local-Tests: passed` only after applicable local tests pass. For justified reuse, use
+  `Local-Tests: reused <tested-commit-sha>` and explain why the changes preserve that coverage.
+  For an approved environment exception, use `Local-Tests: not-run` with the approval reference
+  and remaining validation. These are author declarations, not independent proof of execution.
+  Do not rewrite published commits to add declarations; a new tested tip can cover the range.
 - **Share at most three premerge slots per GitHub user** — follow the
   [per-user premerge limit](CONTRIBUTING.md#per-user-premerge-limit) before every `build` comment.
   Check live running, queued, and just-submitted requests across all PRs for the triggering

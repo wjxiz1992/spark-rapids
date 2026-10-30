@@ -566,12 +566,22 @@ focused testing; it must not be the first test run for a small change.
   and runtime-specific paths where applicable, and verify CPU/GPU parity and GPU execution for
   GPU behavior changes. Target the affected scope locally; the full premerge matrix still runs
   in CI.
-- Confirm in the PR's local-testing checkbox that the tests relevant to the current change
+- Confirm in the PR's local-testing checkbox that the tests relevant to the initial change
   ran and passed. Full commands and logs are not required in the PR; keep them available for
   reviewer follow-up when needed. A successful compile, test collection, or an all-skipped run
   does not establish a passing test run. Explain why a test layer is inapplicable rather than
   silently omitting it. Documentation-only changes require relevant documentation checks,
   not GPU tests.
+- For follow-up changes, the initial checkbox is not a new test declaration. Each change must
+  be covered by a declaration in its commit message, or in a later tested tip's message that
+  explicitly names the covered commits or range. Use `Local-Tests: passed` after applicable
+  local tests pass. One run may cover several commits, but it does not cover future changes.
+  For justified reuse, use `Local-Tests: reused <tested-commit-sha>` and explain why the later
+  changes do not affect the validated behavior. For the maintainer-approved environment
+  exception below, use `Local-Tests: not-run` with an approval reference and the remaining
+  validation. These declarations link the author's confirmation to commits; they do not
+  independently prove test execution. Do not rewrite published commits just to add them;
+  a new tested tip can declare the range it covers.
 - Re-run affected validation after code changes and update the confirmation before pushing or
   requesting another build. If the required environment is unavailable, run the checks that
   are feasible and document the blocker and remaining validation. As an exception to the
