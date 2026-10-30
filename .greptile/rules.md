@@ -3,6 +3,21 @@
 For full coding conventions, build commands, code examples, and
 shim layer architecture, see `AGENTS.md` at the repo root.
 
+## Local validation evidence
+
+On initial review and every follow-up commit, inspect the PR description and
+comments for local validation evidence covering the current diff. Evidence must
+identify the tested revision or commit range, commands, and observed results.
+One run may cover several commits. Allow justified reuse of earlier results when
+later changes do not affect the validated behavior; assess the changes since the
+tested revision rather than requiring a separate run for every commit.
+
+If relevant evidence is missing or stale, cap the confidence score at **3/5** and
+explain which changed behavior remains unvalidated. Missing evidence is not a
+test failure. Accept justified inapplicable test layers, including runtime tests
+for changes confined to agent instructions or review configuration. Compilation,
+test collection, and all-skipped runs do not establish passing runtime tests.
+
 ## Shim compatibility review
 
 For versioned sources, shared shim callers, or Spark/Databricks profile/matrix
