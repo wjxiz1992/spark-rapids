@@ -27,6 +27,18 @@ Please provide a description of the changes proposed in this pull request. Here 
 - How are the new features/behaviors tested? Please describe the test cases you added or modified. If they are tested in a cluster, please describe it as well.
 -->
 
+#### Local validation
+
+<!--
+Complete affected local testing before publishing code or requesting Blossom, including for
+drafts. See CONTRIBUTING.md#testing-your-code. Report observed results, not planned commands.
+For an inapplicable test layer, explain why; documentation-only PRs need documentation checks.
+-->
+
+- Tested commit and environment:
+- Affected unit-test suites, commands, and results:
+- Related integration tests, commands, and results:
+
 ### Checklists
 
 <!-- 

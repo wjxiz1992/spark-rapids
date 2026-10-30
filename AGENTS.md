@@ -13,6 +13,20 @@ This document provides context for AI coding agents (Claude Code, GitHub Copilot
 - **Keep pull request descriptions reviewable** — describe intent and rationale, do not paste code diffs or brittle line-level details, and update the description when later commits change its claims
 - **Bound draft and closure lifecycle** — use Draft only for concrete unfinished work, state in the description what remains (a TODO checklist is preferred). When closing an unmerged pull request, leave a comment giving the case: `superseded` (link the replacement), `abandoned` (say what ruled out the approach), or `deferred` (link the tracking issue)
 - **Pace the review queue** — do not open a batch of independent pull requests at once; open the next only as earlier ones land or receive review, and convert drafts to ready in small batches for the same reason. Stacked pull requests are exempt, but identify the dependency with `Stacked on #NNNN`
+- **Test locally before publishing or requesting CI** — follow
+  [Testing Your Code](CONTRIBUTING.md#testing-your-code). Build the submitted code, pass the full
+  affected unit-test suites and related integration tests, and record the tested commit,
+  commands, environment, scope, and results in the PR description. Re-run affected validation
+  after code changes, including follow-up pushes. If a test layer is inapplicable, explain why;
+  if required testing is blocked, report the blocker and obtain a suitable developer environment
+  before publishing code or requesting premerge. Draft status does not waive this requirement.
+- **Share at most three premerge slots per GitHub user** — follow the
+  [per-user premerge limit](CONTRIBUTING.md#per-user-premerge-limit) before every `build` comment.
+  Check live running, queued, and just-submitted requests across all PRs for the triggering
+  account, including older heads. Deduplicate job fan-out by the original comment, avoid a
+  duplicate request on a busy PR, and coordinate submissions across agents using the account.
+  At three outstanding requests, wait and re-check. If capacity cannot be verified, do not
+  trigger a build.
 - **AI-assisted changes require a human in the loop** — disclose AI assistance in the pull request description, then stop for human review of the complete diff and description before opening or updating the pull request. The pull request queue is not a staging area for work no human has read
 
 ## Safety Rules

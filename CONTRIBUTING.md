@@ -552,7 +552,33 @@ By making a contribution to this project, I certify that:
 ```
 
 ### Testing Your Code
-Please visit the [testing doc](tests/README.md) for details about how to run tests
+Before publishing code changes, including follow-up pushes, or requesting Blossom premerge,
+run and pass the tests affected by the change in a developer test environment. This applies
+to human-authored and AI-assisted changes alike. Full premerge is shared infrastructure for
+broad validation after focused testing; it must not be the first test run for a small change.
+
+- Identify the affected behavior, callers, and test coverage from the diff. Run the full affected
+  unit-test suites, not just the newly added test. Also run the related integration tests,
+  including relevant parameter combinations and configurations. A small diff is not a reason
+  to omit either layer when both apply.
+- Build the artifacts from the code being submitted. Exercise the affected Spark/Scala versions
+  and runtime-specific paths where applicable, and verify CPU/GPU parity and GPU execution for
+  GPU behavior changes. Target the affected scope locally; the full premerge matrix still runs
+  in CI.
+- Record the tested commit, commands, environment (including Spark/Scala/Python versions and GPU
+  when applicable), selected suites/cases, and observed result summaries in the PR description.
+  A successful compile, test collection, or a run where all selected cases were skipped does
+  not establish a passing test run. Explain why a test layer is inapplicable rather than
+  silently omitting it. Documentation-only changes require relevant documentation checks,
+  not GPU tests.
+- Re-run affected validation after code changes and update the evidence before pushing or
+  requesting another build. If tests fail or the required environment is unavailable, report
+  the blocker and obtain a suitable developer environment; do not use premerge to replace the
+  missing local validation. A developer-managed remote GPU environment is acceptable; a shared
+  Blossom premerge run is not local test evidence.
+
+See the [unit-test guide](tests/README.md) and
+[integration-test guide](integration_tests/README.md) for commands and environment setup.
 
 
 ### Pre-commit hooks
@@ -611,8 +637,9 @@ Here are some guidelines to follow when creating a pull request:
 2. Label your PR. Labels are what make the queue filterable. Changes that touch only tests get the
    `test` label so reviewers know no production logic changed.
 
-3. If your pull request is not ready for review but you want to make use of the
-   continuous integration testing facilities, please make it as a draft and prefix the title with
+3. Complete [affected local testing](#testing-your-code) before opening a pull request or
+   requesting CI, including for drafts. If your pull request is not ready for review but needs
+   broader CI validation or early feedback, please make it a draft and prefix the title with
    `[WIP]`. Please do not use other title prefixes that mean the same thing as `[WIP]` such as
    `[DO NOT REVIEW]` and `[DRAFT]`.
 
@@ -656,7 +683,34 @@ Ref: [spark-premerge-build.sh](jenkins/spark-premerge-build.sh)
 If it fails, you can click the `Details` link of this check, and go to `Upload log -> Jenkins log for pull request xxx (click here)` to
 find the uploaded log.
 
-Options:
+##### Per-user premerge limit
+
+Before posting `build`, check the live Blossom/Jenkins running builds and queue across all
+cudf-spark PRs for the GitHub account submitting the request. Each account may have at most
+**three outstanding premerge requests**, shared by all humans, agents, and sessions using it.
+
+- Count running, queued, and just-submitted requests whose completion is not yet confirmed.
+  Attribute requests to the user who posted `build`, not the PR author or CI bot. Include older
+  commits whose builds are still active; a new PR head does not release their capacity.
+- Count one original `build` comment as one request even when it fans out into multiple jobs
+  (for example, standard and Databricks premerge). Keep its slot occupied until all associated
+  jobs have finished or cancellation is confirmed. Separately submitted requests each occupy
+  a slot, even when they target the same PR.
+- With zero, one, or two outstanding requests, submit at most one new request after confirming
+  the PR's current head has the required local test evidence. With three or more, wait for a
+  slot and re-check before submitting. List the active PRs when reporting that capacity is full.
+- Do not post a duplicate `build` while the PR already has an outstanding request. For an
+  obsolete run, wait for completion or confirmed cancellation before requesting a replacement.
+- Agents sharing an account must coordinate the capacity check and submission one at a time,
+  accounting for newly submitted requests before they appear in Jenkins. An empty GitHub
+  check list alone is not evidence of available capacity. If queue, run, or ownership data
+  cannot be verified, do not submit a request; report the missing information.
+
+This is a contributor and agent operating rule. It does not add an automatic limit to the
+Blossom scheduler.
+
+##### CI options
+
 1. Skip tests run by adding `[skip ci]` to the title. This should only be used for doc-only changes.
 2. Run build and tests in Databricks runtimes by adding `[databricks]` to the title. This adds around 30-40 minutes.
 3. Run Scala unit tests serially by adding `[serial ut]` or `[serial-ut]` to the title. Parallel execution is the default.
