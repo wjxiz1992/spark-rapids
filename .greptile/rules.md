@@ -3,14 +3,15 @@
 For full coding conventions, build commands, code examples, and
 shim layer architecture, see `AGENTS.md` at the repo root.
 
-## Local validation evidence
+## Local validation confirmation
 
 On initial review and every follow-up commit, inspect the PR description and
-comments for validation evidence covering the current diff. Evidence must
-identify the tested revision or commit range, commands, and observed results.
-One run may cover several commits. Allow justified reuse of earlier results when
-later changes do not affect the validated behavior; assess the changes since the
-tested revision rather than requiring a separate run for every commit.
+comments for local-testing confirmation covering the current diff. A checked
+local-testing item or an equivalent concise statement is sufficient; do not
+require pasted commands or full logs. Consider any supplied revision, scope, or
+results when assessing whether the confirmation still applies to follow-up
+changes. One run may cover several commits. Allow justified reuse when later
+changes do not affect the validated behavior.
 
 Recognize the maintainer-approved environment exception in
 `CONTRIBUTING.md#testing-your-code`. Check the feasible checks, documented blocker,
@@ -19,10 +20,12 @@ targeted CI. Assess the actual CI results for the remaining scope as they become
 available, keeping them distinct from local evidence. Approval alone does not
 validate untested behavior or waive known product-test failures.
 
-If relevant evidence is missing or stale, cap the confidence score at **3/5** and
-explain which changed behavior remains unvalidated. Missing evidence is not a
-test failure. Accept justified inapplicable test layers, including runtime tests
-for changes confined to agent instructions or review configuration. Compilation,
+If the confirmation is missing, contradicted by observed results, or no longer
+covers the changed behavior, cap the confidence score at **3/5** and explain what
+remains unvalidated. Do not lower confidence merely because full commands or logs
+are omitted. Missing confirmation is not a test failure. Accept justified
+inapplicable test layers, including runtime tests for changes confined to agent
+instructions or review configuration. Compilation,
 test collection, and all-skipped runs do not establish passing runtime tests.
 
 ## Shim compatibility review

@@ -30,18 +30,11 @@ Please provide a description of the changes proposed in this pull request. Here 
 #### Local validation
 
 <!--
-Complete affected local testing or obtain explicit maintainer approval under the environment
-exception before publishing code or requesting targeted CI, including for drafts. See
-CONTRIBUTING.md#testing-your-code. Record feasible checks, the blocker, remaining validation,
-and approval when using that exception. Report CI results as CI validation, not local evidence.
-The exception does not waive known product-test failures. Report observed results, not plans.
-For an inapplicable test layer, explain why; documentation-only PRs need documentation checks.
+If the required environment is unavailable, leave this unchecked and document the
+maintainer-approved environment exception in CONTRIBUTING.md#testing-your-code.
 -->
 
-- Tested commit and environment:
-- Affected unit-test suites, commands, and results:
-- Related integration tests, commands, and results:
-- Environment exception, if applicable: blocker, remaining validation, and maintainer approval:
+- [ ] I have run and passed the local tests relevant to this change.
 
 ### Checklists
 

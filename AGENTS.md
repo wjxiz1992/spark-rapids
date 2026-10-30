@@ -15,9 +15,9 @@ This document provides context for AI coding agents (Claude Code, GitHub Copilot
 - **Pace the review queue** — do not open a batch of independent pull requests at once; open the next only as earlier ones land or receive review, and convert drafts to ready in small batches for the same reason. Stacked pull requests are exempt, but identify the dependency with `Stacked on #NNNN`
 - **Test locally before publishing or requesting CI** — follow
   [Testing Your Code](CONTRIBUTING.md#testing-your-code). Build the submitted code, pass the full
-  affected unit-test suites and related integration tests, and record the tested commit,
-  commands, environment, scope, and results in the PR description. Re-run affected validation
-  after code changes, including follow-up pushes. If a test layer is inapplicable, explain why;
+  affected unit-test suites and related integration tests, and confirm completion using the
+  PR's local-testing checkbox. Pasting full commands and logs is not required. Re-run affected
+  validation after code changes, including follow-up pushes. If a test layer is inapplicable, explain why;
   if the required environment is unavailable, run feasible checks, document the blocker and
   remaining validation, and obtain explicit maintainer approval before publishing code
   (including drafts or follow-up pushes) or requesting targeted CI validation. This exception

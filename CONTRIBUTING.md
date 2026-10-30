@@ -566,13 +566,13 @@ focused testing; it must not be the first test run for a small change.
   and runtime-specific paths where applicable, and verify CPU/GPU parity and GPU execution for
   GPU behavior changes. Target the affected scope locally; the full premerge matrix still runs
   in CI.
-- Record the tested commit, commands, environment (including Spark/Scala/Python versions and GPU
-  when applicable), selected suites/cases, and observed result summaries in the PR description.
-  A successful compile, test collection, or a run where all selected cases were skipped does
-  not establish a passing test run. Explain why a test layer is inapplicable rather than
+- Confirm in the PR's local-testing checkbox that the tests relevant to the current change
+  ran and passed. Full commands and logs are not required in the PR; keep them available for
+  reviewer follow-up when needed. A successful compile, test collection, or an all-skipped run
+  does not establish a passing test run. Explain why a test layer is inapplicable rather than
   silently omitting it. Documentation-only changes require relevant documentation checks,
   not GPU tests.
-- Re-run affected validation after code changes and update the evidence before pushing or
+- Re-run affected validation after code changes and update the confirmation before pushing or
   requesting another build. If the required environment is unavailable, run the checks that
   are feasible and document the blocker and remaining validation. As an exception to the
   local-testing requirement, obtain explicit maintainer approval before publishing code
