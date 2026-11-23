@@ -234,6 +234,11 @@ noop_write_test.py" \
         ./integration_tests/run_pyspark_from_build.sh --iceberg
 }
 
+run_premerge_pyspark_tests() (
+    cd integration_tests
+    run_with_unicode_path_test "$file_path_test" ./run_pyspark_from_build.sh
+)
+
 ci_2() {
     echo "Run premerge ci 2 testings..."
     export JAVA_HOME=$(echo /usr/lib/jvm/java-1.17.0-*)
@@ -246,7 +251,7 @@ ci_2() {
 
     # Download a Scala 2.12 build of spark
     prepare_spark $SPARK_VER 2.12
-    ./integration_tests/run_pyspark_from_build.sh
+    run_premerge_pyspark_tests
 
     # enable avro test separately
     INCLUDE_SPARK_AVRO_JAR=true TEST='avro_test.py' ./integration_tests/run_pyspark_from_build.sh
@@ -293,7 +298,7 @@ ci_scala213() {
     export TEST_TYPE="pre-commit"
     # SPARK_HOME (and related) must be set to a Spark built with Scala 2.13
     SPARK_HOME=$SPARK_HOME PYTHONPATH=$PYTHONPATH \
-        ./integration_tests/run_pyspark_from_build.sh
+        run_premerge_pyspark_tests
     # enable avro test separately
     SPARK_HOME=$SPARK_HOME PYTHONPATH=$PYTHONPATH \
         INCLUDE_SPARK_AVRO_JAR=true TEST='avro_test.py' ./integration_tests/run_pyspark_from_build.sh
@@ -361,6 +366,7 @@ nvidia-smi
 
 . jenkins/version-def.sh
 . jenkins/shuffle-common.sh
+. jenkins/utf8-path-tests.sh
 
 PREMERGE_PROFILES="-Ppre-merge"
 

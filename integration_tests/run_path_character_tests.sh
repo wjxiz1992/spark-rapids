@@ -46,6 +46,7 @@ esac
 # select it, and selecting a table test without its enable flag silently skips it.
 export TESTS=${TESTS:-path_character_test.py::test_path_characters}
 pytest_options=("$@")
+path_tests_only=true
 read -ra selected_tests <<< "$TESTS"
 for selected_test in "${selected_tests[@]}"; do
     case "$selected_test" in
@@ -63,8 +64,13 @@ for selected_test in "${selected_tests[@]}"; do
         path_character_test.py::test_path_characters*)
             export INCLUDE_SPARK_AVRO_JAR=true
             ;;
+        *) path_tests_only=false ;;
     esac
 done
+if [[ $path_tests_only == true ]]; then
+    # A standalone executor starts from its Worker's environment.
+    export LC_ALL=C.UTF-8 PYSP_TEST_spark_executorEnv_LC_ALL=C.UTF-8
+fi
 script_dir=$(cd "$(dirname "$0")" && pwd)
 exec bash "$script_dir/run_pyspark_from_build.sh" \
     --path_backend="$backend" --tmp_path="$tmp_path" "${pytest_options[@]}"

@@ -21,6 +21,7 @@ nvidia-smi
 
 . jenkins/version-def.sh
 . jenkins/shuffle-common.sh
+. jenkins/utf8-path-tests.sh
 
 # Get the shuffle shim for the current Spark version
 SHUFFLE_SPARK_SHIM=$(get_shuffle_shim)
@@ -389,7 +390,8 @@ run_delta_lake_tests() {
           TESTS=delta_lake_test.py::test_delta_bitmap_serialization_java_compatibility \
           ./run_pyspark_from_build.sh -m delta_lake --delta_lake || return 1
       fi
-      "${delta_test_env[@]}" ./run_pyspark_from_build.sh -m delta_lake --delta_lake
+      run_with_unicode_path_test path_character_test.py::test_delta_path_characters \
+        "${delta_test_env[@]}" ./run_pyspark_from_build.sh -m delta_lake --delta_lake
     done
   fi
 }
@@ -478,6 +480,7 @@ run_iceberg_tests() {
   fi
 
   local test_type=${1:-'default'}
+  local iceberg_path_test=iceberg/iceberg_path_test.py::test_iceberg_path_characters
   local iceberg_test_tags="iceberg"
   if [[ -n "${TEST_TAGS:-}" ]]; then
     iceberg_test_tags="iceberg and ($TEST_TAGS)"
@@ -487,6 +490,7 @@ run_iceberg_tests() {
       echo "Selected full Iceberg suite (TEST_TAGS=$iceberg_test_tags)"
       ;;
     1)
+      iceberg_path_test=
       iceberg_test_tags="$iceberg_test_tags and iceberg_fast_test"
       echo "Selected fast Iceberg suite (TEST_TAGS=$iceberg_test_tags)"
       ;;
@@ -527,7 +531,7 @@ run_iceberg_tests() {
     echo "Running Iceberg tests for Iceberg version $ICEBERG_VERSION"
     if [[ "$test_type" == "default" ]]; then
       echo "!!! Running iceberg tests"
-      env \
+      run_with_unicode_path_test "$iceberg_path_test" env \
         HOST_NAME=$PROJECT_REPO_HOST \
         EXPECTED_ICEBERG_VERSION=${ICEBERG_VERSION} \
         PYSP_TEST_spark_driver_memory=1G \
@@ -546,7 +550,7 @@ org.apache.iceberg:iceberg-aws-bundle:${ICEBERG_VERSION}"
       ICEBERG_REST_EXTRA_CLASSPATH=$(download_maven_jars "$ICEBERG_REST_JARS")
           # filecache.enabled and perfio.s3.enabled are startup-only configs, so they must
           # be set here via PYSP_TEST_ env vars rather than as session-level Spark configs.
-          env \
+          run_with_unicode_path_test "$iceberg_path_test" env \
             HOST_NAME=$PROJECT_REPO_HOST \
             EXPECTED_ICEBERG_VERSION=${ICEBERG_VERSION} \
             ICEBERG_EXTRA_CLASSPATH="${ICEBERG_REST_EXTRA_CLASSPATH}" \
@@ -605,7 +609,7 @@ com.amazonaws:aws-java-sdk-bundle:${AWS_SDK_BUNDLE_VERSION}"
       # filecache.enabled is a startup-only config, so it must be set here via
       # PYSP_TEST_ env var rather than as a session-level Spark config, because
       # FileCacheManager is initialized at executor startup time.
-      env \
+      run_with_unicode_path_test "$iceberg_path_test" env \
         HOST_NAME=$PROJECT_REPO_HOST \
         EXPECTED_ICEBERG_VERSION=${ICEBERG_VERSION} \
         ICEBERG_EXTRA_CLASSPATH="${ICEBERG_S3TABLES_EXTRA_CLASSPATH}" \
@@ -633,7 +637,7 @@ run_avro_tests() {
     PYSP_TEST_spark_jars_packages="org.apache.spark:spark-avro_${SCALA_BINARY_VER}:${SPARK_VER}" \
     PYSP_TEST_spark_jars_repositories="https://repository.apache.org/snapshots" \
     PYSP_TEST_spark_jars_ivySettings="${WORKSPACE}/jenkins/ivysettings.xml" \
-    ./run_pyspark_from_build.sh -k avro
+    TEST=avro run_with_unicode_path_test "$file_path_test" ./run_pyspark_from_build.sh
 }
 
 run_pyarrow_tests() {
@@ -664,7 +668,7 @@ run_non_utc_time_zone_tests() {
   echo "Run Non-UTC tests, time zone is ${time_zone}"
 
   # run tests
-  TZ=${time_zone} ./run_pyspark_from_build.sh
+  TZ=${time_zone} run_with_unicode_path_test "$file_path_test" ./run_pyspark_from_build.sh
 }
 
 # TEST_MODE
@@ -681,7 +685,7 @@ run_non_utc_time_zone_tests() {
 # - NON_UTC_TZ: test all tests in a non-UTC time zone which is selected according to current day of week.
 TEST_MODE=${TEST_MODE:-'DEFAULT'}
 if [[ $TEST_MODE == "DEFAULT" ]]; then
-  ./run_pyspark_from_build.sh
+  run_with_unicode_path_test "$file_path_test" ./run_pyspark_from_build.sh
 
   SPARK_SHELL_SMOKE_TEST=1 \
   PYSP_TEST_spark_shuffle_manager=com.nvidia.spark.rapids.${SHUFFLE_SPARK_SHIM}.RapidsShuffleManager \
